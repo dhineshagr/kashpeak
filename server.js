@@ -8,6 +8,8 @@ import userRoutes from "./routes/user.js";
 import dashboardRoutes from "./routes/dashboard.js";
 import projectDetailsRoutes from "./routes/projectDetails.js";
 import employeeRoutes from "./routes/employees.js";
+import "./jobs/billingCheckJob.js"; 
+import manageClientsRoutes from "./routes/manageclients.js";
 
 dotenv.config();
 
@@ -22,6 +24,7 @@ app.use("/api/user", userRoutes);  // ⬅️ Get user details in dashboard
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/projects", projectDetailsRoutes);
 app.use("/api/employees", employeeRoutes);
+app.use("/api/manageclients", manageClientsRoutes);
 
 app.get("/", (req, res) => res.send("API is running!"));
 
