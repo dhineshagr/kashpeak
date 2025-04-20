@@ -26,26 +26,30 @@ router.post("/login", async (req, res) => {
 
     const user = result.rows[0];
 
-    // ⚠️ Replace this with bcrypt check in production
+    // ⚠️ In production, use bcrypt instead
     if (user.user_password !== password) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
     const fullName = `${user.first_name} ${user.last_name}`.trim();
 
-    // 🧾 Generate JWT with fullName
+    // ✅ Normalize admin_level to expected values
+    let role = "Basic";
+    if (user.admin_level === "Admin") role = "Admin";
+    else if (user.admin_level === "Super Admin") role = "Super Admin";
+
+    // 🧾 Generate JWT with normalized role
     const token = jwt.sign(
       {
         emp_id: user.emp_id,
         username: user.kash_operations_usn,
-        role: user.admin_level,
-        fullName: fullName
+        role: role,
+        fullName: fullName,
       },
       process.env.JWT_SECRET,
       { expiresIn: "2h" }
     );
 
-    // ✅ Send token + fullName separately too (for localStorage)
     res.json({ token, fullName });
   } catch (err) {
     console.error("Login error:", err);

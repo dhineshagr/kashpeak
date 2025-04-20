@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+
 import clientRoutes from "./routes/clients.js";
 import authRoutes from "./routes/auth.js";
 import metricRoutes from "./routes/metrics.js";
@@ -10,6 +11,9 @@ import projectDetailsRoutes from "./routes/projectDetails.js";
 import employeeRoutes from "./routes/employees.js";
 import "./jobs/billingCheckJob.js"; 
 import manageClientsRoutes from "./routes/manageclients.js";
+import projectRoutes from "./routes/projects.js";
+import timesheetRoutes from "./routes/timesheet.js"; // ✅
+
 
 dotenv.config();
 
@@ -17,17 +21,20 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ✅ Register all routes
 app.use("/api/clients", clientRoutes);
-app.use("/api/auth", authRoutes);         // ⬅️ Login
-app.use("/api/metrics", metricRoutes);    // ⬅️ Protected metrics
-app.use("/api/user", userRoutes);  // ⬅️ Get user details in dashboard
+app.use("/api/auth", authRoutes);
+app.use("/api/metrics", metricRoutes);
+app.use("/api/user", userRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/projects", projectDetailsRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/manageclients", manageClientsRoutes);
+app.use("/api/projects", projectRoutes);
+app.use("/api/timesheet", timesheetRoutes); // ✅ ONLY this line
 
+// ✅ Test route
 app.get("/", (req, res) => res.send("API is running!"));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-

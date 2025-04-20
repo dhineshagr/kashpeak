@@ -11,20 +11,15 @@ router.get("/", authenticateToken, async (req, res) => {
       SELECT 
         c.company_id,
         c.company_name,
-        c.contact_name,
-        c.email,
-        c.phone,
         c.industry,
-        c.hours_billed,
-        c.hours_projected,
-        c.address_line1,
+        c.company_address AS address_line1,
         c.address_line2,
-        c.city,
-        c.state,
-        c.country,
-        c.zipcode,
-        COUNT(p.*) AS total_projects,
-        COUNT(*) FILTER (WHERE p.current_status = 'active') AS active_projects
+        c.company_location_city AS city,
+        c.company_location_state AS state,
+        c.company_location_country AS country,
+        c.company_zip_code AS zipcode,
+        COUNT(DISTINCT p.project_category) AS total_projects,
+        COUNT(*) FILTER (WHERE LOWER(p.current_status) = 'active') AS active_projects
       FROM kash_operations_company_table c
       LEFT JOIN kash_operations_created_projects_table p ON c.company_id = p.company_id
       GROUP BY c.company_id
@@ -38,38 +33,37 @@ router.get("/", authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ POST create new client
+// ✅ POST create new client (AUTO-GENERATE company_id)
 router.post("/", authenticateToken, async (req, res) => {
   const {
-    company_id, company_name, contact_name, email, phone,
-    industry, hours_billed, hours_projected,
-    address_line1, address_line2, city, state, country, zipcode
+    company_name,
+    industry,
+    address_line1,
+    address_line2,
+    city,
+    state,
+    country,
+    zipcode
   } = req.body;
 
   try {
-    const check = await db.query(
-      "SELECT company_id FROM kash_operations_company_table WHERE company_id = $1",
-      [company_id]
-    );
-
-    if (check.rows.length > 0) {
-      return res.status(400).json({ error: "Company ID already exists" });
-    }
+    // Auto-generate company_id (e.g., CMP202404151234)
+    const timestamp = Date.now().toString().slice(-6); // get last 6 digits of timestamp
+    const company_id = `CMP${new Date().getFullYear()}${timestamp}`;
 
     const result = await db.query(`
       INSERT INTO kash_operations_company_table (
-        company_id, company_name, contact_name, email, phone,
-        industry, hours_billed, hours_projected,
-        address_line1, address_line2, city, state, country, zipcode
+        company_id, company_name, industry,
+        company_address, address_line2,
+        company_location_city, company_location_state,
+        company_location_country, company_zip_code
       ) VALUES (
-        $1, $2, $3, $4, $5,
-        $6, $7, $8,
-        $9, $10, $11, $12, $13, $14
+        $1, $2, $3, $4, $5, $6, $7, $8, $9
       ) RETURNING *
     `, [
-      company_id, company_name, contact_name, email, phone,
-      industry, hours_billed, hours_projected,
-      address_line1, address_line2, city, state, country, zipcode
+      company_id, company_name, industry,
+      address_line1, address_line2,
+      city, state, country, zipcode
     ]);
 
     res.status(201).json(result.rows[0]);
@@ -79,37 +73,43 @@ router.post("/", authenticateToken, async (req, res) => {
   }
 });
 
+
 // ✅ PUT update client
 router.put("/:id", authenticateToken, async (req, res) => {
   const id = req.params.id;
   const {
-    company_name, contact_name, email, phone,
-    industry, hours_billed, hours_projected,
-    address_line1, address_line2, city, state, country, zipcode
+    company_name,
+    industry,
+    address_line1,
+    address_line2,
+    city,
+    state,
+    country,
+    zipcode,
   } = req.body;
 
   try {
     const result = await db.query(`
       UPDATE kash_operations_company_table SET
         company_name = $1,
-        contact_name = $2,
-        email = $3,
-        phone = $4,
-        industry = $5,
-        hours_billed = $6,
-        hours_projected = $7,
-        address_line1 = $8,
-        address_line2 = $9,
-        city = $10,
-        state = $11,
-        country = $12,
-        zipcode = $13
-      WHERE company_id = $14
+        industry = $2,
+        company_address = $3,
+        address_line2 = $4,
+        company_location_city = $5,
+        company_location_state = $6,
+        company_location_country = $7,
+        company_zip_code = $8
+      WHERE company_id = $9
       RETURNING *
     `, [
-      company_name, contact_name, email, phone,
-      industry, hours_billed, hours_projected,
-      address_line1, address_line2, city, state, country, zipcode,
+      company_name,
+      industry,
+      address_line1,
+      address_line2,
+      city,
+      state,
+      country,
+      zipcode,
       id
     ]);
 
@@ -119,6 +119,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Update failed" });
   }
 });
+
 
 // ✅ DELETE client
 router.delete("/:id", authenticateToken, async (req, res) => {
