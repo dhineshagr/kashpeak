@@ -1,5 +1,6 @@
 import express from "express";
 import db from "../db/index.js";
+import { authenticateToken } from "./auth.js";
 
 const router = express.Router();
 
@@ -73,5 +74,26 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+//Company Dropdown Based on Billable/Non-Billable for Timesheet page
+router.get("/by-billable/:type", authenticateToken, async (req, res) => {
+  const { type } = req.params;
+  const isBillable = type.toLowerCase() === "billable";
+
+  try {
+    const result = await db.query(
+      `SELECT company_id, company_name 
+       FROM kash_operations_company_table 
+       WHERE is_billable = $1`,  // ✅ updated column
+      [isBillable]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching companies by billable status:", error);
+    res.status(500).json({ error: "Failed to fetch companies" });
+  }
+});
+
 
 export default router;
