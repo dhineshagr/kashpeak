@@ -300,8 +300,9 @@ router.get("/week/:empId/:weekStartDate", authenticateToken, async (req, res) =>
 
 
 // ✅ Get Timesheet Report by Week
+// ✅ Get Timesheet Report by Week with Filters
 router.get("/report", authenticateToken, async (req, res) => {
-  const { startDate, endDate } = req.query;
+  const { startDate, endDate, clients, projects, employees, billable } = req.query;
 
   try {
     let query = `
@@ -323,13 +324,42 @@ router.get("/report", authenticateToken, async (req, res) => {
       JOIN kash_operations_user_table u ON t.emp_id = u.emp_id
       JOIN kash_operations_created_projects_table p ON t.sow_id = p.sow_id
       JOIN kash_operations_company_table c ON p.company_id = c.company_id
+      WHERE 1=1
     `;
 
+    const conditions = [];
     const values = [];
 
     if (startDate && endDate) {
-      query += ` WHERE t.period_start_date BETWEEN $1 AND $2`;
+      conditions.push(`t.period_start_date BETWEEN $${values.length + 1} AND $${values.length + 2}`);
       values.push(startDate, endDate);
+    }
+
+    if (clients) {
+      const clientArray = clients.split(",");
+      conditions.push(`c.company_name = ANY($${values.length + 1})`);
+      values.push(clientArray);
+    }
+
+    if (projects) {
+      const projectArray = projects.split(",");
+      conditions.push(`p.project_category = ANY($${values.length + 1})`);
+      values.push(projectArray);
+    }
+
+    if (employees) {
+      const empArray = employees.split(",");
+      conditions.push(`u.first_name || ' ' || u.last_name = ANY($${values.length + 1})`);
+      values.push(empArray);
+    }
+
+    if (billable !== undefined) {
+      conditions.push(`t.billable = $${values.length + 1}`);
+      values.push(billable === "true");
+    }
+
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
     }
 
     query += ` ORDER BY t.period_start_date DESC`;
@@ -341,6 +371,7 @@ router.get("/report", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch report data" });
   }
 });
+
 
 // GET /api/timesheet/hours-report
 router.get("/hours-report", authenticateToken, async (req, res) => {

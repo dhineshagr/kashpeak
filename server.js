@@ -13,7 +13,7 @@ import manageClientsRoutes from "./routes/manageclients.js";
 import projectRoutes from "./routes/projects.js"; // ✅ correctly plural
 import timesheetRoutes from "./routes/timesheet.js";
 import openaiRoutes from "./routes/openai.js";
-
+import adminRoutes from './routes/admin.js';
 import "./jobs/billingCheckJob.js"; 
 
 dotenv.config();
@@ -34,7 +34,7 @@ app.use("/api/employees", employeeRoutes);
 app.use("/api/manageclients", manageClientsRoutes);
 app.use("/api/timesheet", timesheetRoutes);
 app.use("/api/openai", openaiRoutes);
-
+app.use('/api/admins', adminRoutes);
 // ✅ Test route
 app.get("/", (req, res) => res.send("API is running!"));
 

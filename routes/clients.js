@@ -4,16 +4,74 @@ import { authenticateToken } from "./auth.js";
 
 const router = express.Router();
 
-// GET all clients
-router.get("/", async (req, res) => {
-    try {
-      const result = await db.query("SELECT * FROM clients");
-      res.json(result.rows);
-    } catch (err) {
-      console.error("❌ Failed to fetch clients:", err.message);
-      res.status(500).json({ error: "Server error" });
+
+router.get("/", authenticateToken, async (req, res) => {
+  try {
+    // 1. Fetch all client companies with project stats
+    const clientsRes = await db.query(`
+      SELECT 
+        c.company_id,
+        c.company_name,
+        c.industry,
+        c.company_address AS address_line1,
+        c.address_line2,
+        c.company_location_city AS city,
+        c.company_location_state AS state,
+        c.company_location_country AS country,
+        c.company_zip_code AS zipcode,
+        COUNT(DISTINCT p.project_category) AS total_projects,
+        COUNT(*) FILTER (WHERE LOWER(p.current_status) = 'active') AS active_projects
+      FROM kash_operations_company_table c
+      LEFT JOIN kash_operations_created_projects_table p ON c.company_id = p.company_id
+      GROUP BY c.company_id
+      ORDER BY c.company_name
+    `);
+
+    // 2. JOIN user table to get full name and admin_level
+    console.log("✅ Filtered Admins Returned:", adminRes.rows);
+    const adminRes = await db.query(`
+      SELECT 
+        a.company_id, 
+        a.kash_operations_usn, 
+        u.first_name,
+        u.last_name,
+        u.admin_level AS role
+      FROM kash_operations_company_admin_role_table a
+      LEFT JOIN kash_operations_user_table u
+        ON a.kash_operations_usn = u.kash_operations_usn
+      WHERE u.admin_level IS NOT NULL AND u.admin_level IN ('Admin', 'Super Admin')
+    `);
+
+
+    // 3. Build a map of admins per company
+    const adminMap = {};
+    for (const row of adminRes.rows) {
+      if (!adminMap[row.company_id]) adminMap[row.company_id] = [];
+
+      const full_name = `${row.first_name || ""} ${row.last_name || ""}`.trim();
+
+      adminMap[row.company_id].push({
+        usn: row.kash_operations_usn,
+        role: row.role || "Admin",
+        full_name: full_name || row.kash_operations_usn,
+      });
     }
-  });
+
+    // 4. Attach admins to each client row
+    const enriched = clientsRes.rows.map((client) => ({
+      ...client,
+      admins: adminMap[client.company_id] || [],
+    }));
+
+    res.json(enriched);
+  } catch (err) {
+    console.error("❌ Error fetching clients", err);
+    res.status(500).json({ error: "Failed to fetch clients" });
+  }
+});
+
+
+
 
 // GET single client by ID
 router.get("/:id", async (req, res) => {

@@ -4,10 +4,10 @@ import { authenticateToken } from "./auth.js";
 
 const router = express.Router();
 
-// ✅ GET all clients with project stats
 router.get("/", authenticateToken, async (req, res) => {
   try {
-    const result = await db.query(`
+    // 1. Fetch all client companies with project stats
+    const clientsRes = await db.query(`
       SELECT 
         c.company_id,
         c.company_name,
@@ -26,12 +26,37 @@ router.get("/", authenticateToken, async (req, res) => {
       ORDER BY c.company_name
     `);
 
-    res.json(result.rows);
+    // 2. Fetch individual project names and statuses
+    const projectRes = await db.query(`
+      SELECT company_id, project_category AS name, current_status
+      FROM kash_operations_created_projects_table
+    `);
+
+    // 3. Build a map of projects per company
+    const projectMap = {};
+    for (const row of projectRes.rows) {
+      if (!projectMap[row.company_id]) projectMap[row.company_id] = [];
+      projectMap[row.company_id].push({
+        name: row.name, // ✅ correctly use the alias from SELECT
+        status: row.current_status?.toLowerCase() || "inactive"
+      });
+    }
+
+    // 4. Enrich the client rows with project list
+    const enriched = clientsRes.rows.map((client) => ({
+      ...client,
+      projects: projectMap[client.company_id] || [],
+    }));
+
+    res.json(enriched);
   } catch (err) {
-    console.error("Error fetching clients", err);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("❌ Failed to fetch clients with project list:", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
+
+
 
 // ✅ POST create new client (AUTO-GENERATE company_id)
 router.post("/", authenticateToken, async (req, res) => {
