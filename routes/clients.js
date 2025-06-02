@@ -28,7 +28,6 @@ router.get("/", authenticateToken, async (req, res) => {
     `);
 
     // 2. JOIN user table to get full name and admin_level
-    console.log("✅ Filtered Admins Returned:", adminRes.rows);
     const adminRes = await db.query(`
       SELECT 
         a.company_id, 
@@ -41,7 +40,7 @@ router.get("/", authenticateToken, async (req, res) => {
         ON a.kash_operations_usn = u.kash_operations_usn
       WHERE u.admin_level IS NOT NULL AND u.admin_level IN ('Admin', 'Super Admin')
     `);
-
+    console.log("✅ Filtered Admins Returned:", adminRes.rows); // ✅ Now safe
 
     // 3. Build a map of admins per company
     const adminMap = {};

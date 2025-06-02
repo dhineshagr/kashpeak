@@ -34,7 +34,7 @@ router.post("/login", async (req, res) => {
     const fullName = `${user.first_name} ${user.last_name}`.trim();
 
     // ✅ Normalize admin_level to expected values
-    let role = "Basic";
+    let role = "Basic User";
     if (user.admin_level === "Admin") role = "Admin";
     else if (user.admin_level === "Super Admin") role = "Super Admin";
 

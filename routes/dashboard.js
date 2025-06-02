@@ -100,4 +100,50 @@ router.get("/client-projects", authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/projects/:sowId/role-breakdown
+router.get("/:sowId/role-breakdown", authenticateToken, async (req, res) => {
+  const { sowId } = req.params;
+
+  try {
+    // Get all roles in project
+    const roles = await db.query(`
+      SELECT r.role_id, r.role_name, pr.estimated_hours
+      FROM kash_operations_project_roles_table pr
+      JOIN kash_operations_roles_table r ON r.role_id = pr.role_id
+      WHERE pr.sow_id = $1
+    `, [sowId]);
+
+    const result = [];
+
+    for (const role of roles.rows) {
+      const employees = await db.query(`
+        SELECT u.emp_id, u.first_name, u.last_name,
+          COALESCE(SUM(t.monday_hours + t.tuesday_hours + t.wednesday_hours + 
+                       t.thursday_hours + t.friday_hours + t.saturday_hours + 
+                       t.sunday_hours), 0) AS utilized_hours
+        FROM kash_operations_project_employee_table e
+        JOIN kash_operations_user_table u ON u.emp_id = e.emp_id
+        LEFT JOIN kash_operations_timesheet_table t ON t.emp_id = e.emp_id AND t.sow_id = e.sow_id
+        WHERE e.sow_id = $1 AND e.role_id = $2
+        GROUP BY u.emp_id, u.first_name, u.last_name
+      `, [sowId, role.role_id]);
+
+      result.push({
+        role_name: role.role_name,
+        estimated_hours: role.estimated_hours,
+        employees: employees.rows.map(e => ({
+          name: `${e.first_name} ${e.last_name}`,
+          utilized: parseFloat(e.utilized_hours),
+        }))
+      });
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error("❌ Role breakdown fetch error:", err);
+    res.status(500).json({ error: "Failed to fetch role breakdown" });
+  }
+});
+
+
 export default router;

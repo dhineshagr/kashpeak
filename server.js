@@ -15,6 +15,8 @@ import timesheetRoutes from "./routes/timesheet.js";
 import openaiRoutes from "./routes/openai.js";
 import adminRoutes from './routes/admin.js';
 import "./jobs/billingCheckJob.js"; 
+import rolesRoutes from "./routes/roles.js";
+import invoiceRoutes from "./routes/invoice.js";
 
 dotenv.config();
 
@@ -35,6 +37,8 @@ app.use("/api/manageclients", manageClientsRoutes);
 app.use("/api/timesheet", timesheetRoutes);
 app.use("/api/openai", openaiRoutes);
 app.use('/api/admins', adminRoutes);
+app.use("/api/roles", rolesRoutes);
+app.use("/api/invoices", invoiceRoutes);
 // ✅ Test route
 app.get("/", (req, res) => res.send("API is running!"));
 

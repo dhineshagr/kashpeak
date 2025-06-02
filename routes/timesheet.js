@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db/index.js";
 import { authenticateToken } from "./auth.js";
+import { format } from "date-fns";
 
 const router = express.Router();
 
@@ -298,8 +299,7 @@ router.get("/week/:empId/:weekStartDate", authenticateToken, async (req, res) =>
 });
 
 
-
-// ✅ Get Timesheet Report by Week
+// ✅ Get Timesheet Report by Week with Filters
 // ✅ Get Timesheet Report by Week with Filters
 router.get("/report", authenticateToken, async (req, res) => {
   const { startDate, endDate, clients, projects, employees, billable } = req.query;
@@ -452,5 +452,184 @@ router.get("/hours-report", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
+// make sure this is at the top if not already
+
+router.get("/daily-report", authenticateToken, async (req, res) => {
+  const { startDate, endDate, clients, projects, employees, billable } = req.query;
+
+  try {
+    let query = `
+      SELECT 
+        t.emp_id,
+        u.first_name || ' ' || u.last_name AS employee_name,
+        t.sow_id,
+        p.project_category,
+        c.company_name,
+        t.period_start_date,
+        t.monday_hours, t.tuesday_hours, t.wednesday_hours,
+        t.thursday_hours, t.friday_hours, t.saturday_hours, t.sunday_hours,
+        t.ticket_num,
+        t.sub_assignment AS work_area,
+        t.sub_assignment_segment_1 AS task_area,
+        t.sub_assignment_segment_2 AS notes,
+        t.billable
+      FROM kash_operations_timesheet_table t
+      JOIN kash_operations_user_table u ON t.emp_id = u.emp_id
+      JOIN kash_operations_created_projects_table p ON t.sow_id = p.sow_id
+      JOIN kash_operations_company_table c ON p.company_id = c.company_id
+      WHERE 1=1
+    `;
+
+    const conditions = [];
+    const values = [];
+
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      const adjustedStart = new Date(start);
+      adjustedStart.setDate(start.getDate() - 6);
+
+      const adjustedEnd = new Date(end);
+      adjustedEnd.setDate(end.getDate() + 6);
+
+      const formattedStart = format(adjustedStart, "yyyy-MM-dd");
+      const formattedEnd = format(adjustedEnd, "yyyy-MM-dd");
+
+      conditions.push(`t.period_start_date BETWEEN $${values.length + 1} AND $${values.length + 2}`);
+      values.push(formattedStart, formattedEnd);
+    }
+
+    if (clients) {
+      const clientArray = clients.split(",");
+      conditions.push(`c.company_name = ANY($${values.length + 1})`);
+      values.push(clientArray);
+    }
+
+    if (projects) {
+      const projectArray = projects.split(",");
+      conditions.push(`p.project_category = ANY($${values.length + 1})`);
+      values.push(projectArray);
+    }
+
+    if (employees) {
+      const empArray = employees.split(",");
+      conditions.push(`u.first_name || ' ' || u.last_name = ANY($${values.length + 1})`);
+      values.push(empArray);
+    }
+
+    if (billable !== undefined) {
+      conditions.push(`t.billable = $${values.length + 1}`);
+      values.push(billable === "true");
+    }
+
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY t.period_start_date DESC`;
+
+    const result = await db.query(query, values);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching report data:", err);
+    res.status(500).json({ error: "Failed to fetch report data" });
+  }
+});
+
+// backend/routes/timesheet.js
+
+router.get("/daily-hours-report", authenticateToken, async (req, res) => {
+  const { startDate, endDate, emp_ids } = req.query;
+  const { emp_id, role } = req.user;
+
+  console.log("➡️ Received Start Date:", startDate);
+  console.log("➡️ Received End Date:", endDate);
+  console.log("➡️ Received emp_ids:", emp_ids);
+  console.log("➡️ User from token:", { emp_id, role });
+
+  try {
+    const conditions = [];
+    const values = [];
+
+    if (startDate && endDate) {
+      conditions.push(`entry_date BETWEEN $${values.length + 1} AND $${values.length + 2}`);
+      values.push(startDate, endDate);
+    }
+
+    if (role === "Basic") {
+      conditions.push(`t.emp_id = $${values.length + 1}`);
+      values.push(emp_id);
+    } else if (emp_ids) {
+      const ids = emp_ids.split(",").map(id => parseInt(id.trim())).filter(Boolean);
+      if (ids.length > 0) {
+        const placeholders = ids.map((_, i) => `$${values.length + i + 1}`).join(",");
+        conditions.push(`t.emp_id IN (${placeholders})`);
+        values.push(...ids);
+      }
+    } else if (role === "Admin" || role === "Super Admin") {
+      const result = await db.query(`SELECT emp_id FROM kash_operations_user_table`);
+      const ids = result.rows.map(row => row.emp_id);
+      if (ids.length > 0) {
+        const placeholders = ids.map((_, i) => `$${values.length + i + 1}`).join(",");
+        conditions.push(`t.emp_id IN (${placeholders})`);
+        values.push(...ids);
+        console.log("✅ Loaded all employee IDs for Admin/Super Admin:", ids.length);
+      }
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const query = `
+      SELECT 
+        u.first_name || ' ' || u.last_name AS employee_name,
+        c.company_name,
+        p.project_category AS project_name,
+        '' AS project_type,
+        t.sub_assignment AS work_area,
+        t.sub_assignment_segment_1 AS task_area,
+        t.ticket_num,
+        t.entry_date,
+        t.task_hours AS total_hours
+      FROM (
+        SELECT 
+          odt.emp_id,
+          odt.sow_id,
+          odt.ticket_num,
+          odt.sub_assignment,
+          odt.sub_assignment_segment_1,
+          (odt.period_start_date + i * INTERVAL '1 day')::date AS entry_date,
+          CASE
+            WHEN i = 0 THEN odt.monday_hours
+            WHEN i = 1 THEN odt.tuesday_hours
+            WHEN i = 2 THEN odt.wednesday_hours
+            WHEN i = 3 THEN odt.thursday_hours
+            WHEN i = 4 THEN odt.friday_hours
+            WHEN i = 5 THEN odt.saturday_hours
+            WHEN i = 6 THEN odt.sunday_hours
+          END AS task_hours
+        FROM kash_operations_timesheet_table odt
+        CROSS JOIN generate_series(0, 6) AS i
+        WHERE (odt.period_start_date + i * INTERVAL '1 day')::date BETWEEN $1 AND $2
+      ) t
+      JOIN kash_operations_user_table u ON u.emp_id = t.emp_id
+      JOIN kash_operations_created_projects_table p ON p.sow_id = t.sow_id
+      JOIN kash_operations_company_table c ON c.company_id = p.company_id
+      ${whereClause}
+      AND t.task_hours > 0
+      ORDER BY t.entry_date ASC, employee_name ASC
+    `;
+
+    const result = await db.query(query, values);
+    console.log("✅ Rows fetched from DB:", result.rows.length);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching Hours Report", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+
 
 export default router;
