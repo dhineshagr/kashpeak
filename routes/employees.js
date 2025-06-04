@@ -39,7 +39,8 @@ router.get("/employees", authenticateToken, async (req, res) => {
  */
 router.get("/", authenticateToken, async (req, res) => {
   try {
-    const result = await db.query(`
+    // Step 1: Fetch basic employee details
+    const employeeRes = await db.query(`
       SELECT 
         emp_id, first_name, middle_name, last_name,
         kash_operations_usn, admin_level, employee_status,
@@ -49,10 +50,58 @@ router.get("/", authenticateToken, async (req, res) => {
         emp_location_country, employee_zip_code
       FROM kash_operations_user_table
     `);
-    res.json(result.rows);
+
+    const employees = employeeRes.rows;
+
+    // Step 2: Fetch assigned clients
+    const clientsRes = await db.query(`
+      SELECT 
+        car.emp_id,
+        c.company_id,
+        c.company_name
+      FROM kash_operations_company_admin_role_table car
+      JOIN kash_operations_company_table c ON car.company_id = c.company_id
+    `);
+
+    const clientMap = {};
+    for (const row of clientsRes.rows) {
+      if (!clientMap[row.emp_id]) clientMap[row.emp_id] = [];
+      clientMap[row.emp_id].push({ company_id: row.company_id, company_name: row.company_name });
+    }
+
+    // Step 3: Fetch assigned projects
+    const projectsRes = await db.query(`
+      SELECT 
+        pe.emp_id,
+        cp.project_category,
+        c.company_id,
+        c.company_name
+      FROM kash_operations_project_employee_table pe
+      JOIN kash_operations_created_projects_table cp ON pe.sow_id = cp.sow_id
+      JOIN kash_operations_company_table c ON cp.company_id = c.company_id
+    `);
+
+    const projectMap = {};
+    for (const row of projectsRes.rows) {
+      if (!projectMap[row.emp_id]) projectMap[row.emp_id] = [];
+      projectMap[row.emp_id].push({
+        project_category: row.project_category,
+        company_id: row.company_id,
+        company_name: row.company_name
+      });
+    }
+
+    // Step 4: Merge results
+    const enriched = employees.map(emp => ({
+      ...emp,
+      assigned_clients: clientMap[emp.emp_id] || [],
+      assigned_projects: projectMap[emp.emp_id] || []
+    }));
+
+    res.json(enriched);
   } catch (err) {
-    console.error("Error fetching employees", err);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("Error fetching enriched employee data:", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
