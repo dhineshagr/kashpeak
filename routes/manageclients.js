@@ -4,10 +4,38 @@ import { authenticateToken } from "./auth.js";
 
 const router = express.Router();
 
+
+// ✅ Create new client
 router.get("/", authenticateToken, async (req, res) => {
+  const empId = req.user?.emp_id;
+  const role = req.user?.role;
+
   try {
-    // 1. Fetch all client companies with project stats
-    const clientsRes = await db.query(`
+    let companiesFilterClause = "";
+    let values = [];
+
+    // Only Super Admin can view all companies
+    if (role === "Super Admin") {
+      companiesFilterClause = ""; // No filter
+    } else {
+      // Admin must be filtered by assignment
+      const assignedCompaniesRes = await db.query(
+        `SELECT company_id FROM kash_operations_company_admin_role_table WHERE emp_id = $1`,
+        [empId]
+      );
+
+      const allowedCompanyIds = assignedCompaniesRes.rows.map(row => row.company_id);
+
+      if (allowedCompanyIds.length === 0) {
+        return res.json([]); // No assigned companies
+      }
+
+      companiesFilterClause = `WHERE c.company_id = ANY($1)`;
+      values = [allowedCompanyIds];
+    }
+
+    const clientsRes = await db.query(
+      `
       SELECT 
         c.company_id,
         c.company_name,
@@ -22,40 +50,38 @@ router.get("/", authenticateToken, async (req, res) => {
         COUNT(*) FILTER (WHERE LOWER(p.current_status) = 'active') AS active_projects
       FROM kash_operations_company_table c
       LEFT JOIN kash_operations_created_projects_table p ON c.company_id = p.company_id
+      ${companiesFilterClause}
       GROUP BY c.company_id
       ORDER BY c.company_name
-    `);
+      `,
+      values
+    );
 
-    // 2. Fetch individual project names and statuses
     const projectRes = await db.query(`
       SELECT company_id, project_category AS name, current_status
       FROM kash_operations_created_projects_table
     `);
 
-    // 3. Build a map of projects per company
     const projectMap = {};
     for (const row of projectRes.rows) {
       if (!projectMap[row.company_id]) projectMap[row.company_id] = [];
       projectMap[row.company_id].push({
-        name: row.name, // ✅ correctly use the alias from SELECT
-        status: row.current_status?.toLowerCase() || "inactive"
+        name: row.name,
+        status: row.current_status?.toLowerCase() || "inactive",
       });
     }
 
-    // 4. Enrich the client rows with project list
-    const enriched = clientsRes.rows.map((client) => ({
+    const enriched = clientsRes.rows.map(client => ({
       ...client,
       projects: projectMap[client.company_id] || [],
     }));
 
     res.json(enriched);
   } catch (err) {
-    console.error("❌ Failed to fetch clients with project list:", err);
+    console.error("❌ Failed to fetch client data:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
-
-
 
 
 // ✅ POST create new client (AUTO-GENERATE company_id)

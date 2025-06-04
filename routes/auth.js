@@ -16,7 +16,7 @@ router.post("/login", async (req, res) => {
       `SELECT emp_id, kash_operations_usn, admin_level, user_password, 
               first_name, last_name
        FROM kash_operations_user_table 
-       WHERE kash_operations_usn = $1`,
+       WHERE LOWER(kash_operations_usn) = LOWER($1)`,
       [username]
     );
 
@@ -43,8 +43,8 @@ router.post("/login", async (req, res) => {
       {
         emp_id: user.emp_id,
         username: user.kash_operations_usn,
-        role: role,
-        fullName: fullName,
+        role,
+        fullName,
       },
       process.env.JWT_SECRET,
       { expiresIn: "2h" }
@@ -56,6 +56,7 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
 
 export default router;
 
