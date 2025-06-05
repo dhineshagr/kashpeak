@@ -12,7 +12,6 @@ pipeline {
         APP_PORT = "5000"
         EXPOSED_PORT = "5000"
         HOST_KEY = "ssh-ed25519 255 SHA256:EWM3xhcabwaMCY8uo9AapEhwHsBREpvpHA0+0cd+Fjs"
-
     }
 
     stages {
@@ -30,7 +29,6 @@ pipeline {
 
         stage('Test') {
             steps {
-                // Optional test script, currently just placeholder
                 bat 'echo "No tests configured"'
             }
         }
@@ -57,8 +55,10 @@ pipeline {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: SSH_CRED_ID, keyFileVariable: 'SSH_KEY')]) {
                     bat """
-                        set REMOTE_CMD=docker rm -f ${CONTAINER_NAME} || true && docker pull ${LATEST_TAG} && docker run -d -p ${EXPOSED_PORT}:${APP_PORT} --name ${CONTAINER_NAME} ${LATEST_TAG}
-                        plink -batch -i "%SSH_KEY%" -hostkey "${HOST_KEY}" azureuser@${REMOTE_HOST} "%REMOTE_CMD%"
+                        plink -batch -i "%SSH_KEY%" -hostkey "${HOST_KEY}" azureuser@${REMOTE_HOST} ^
+                        "docker rm -f ${CONTAINER_NAME} || true && ^
+                        docker pull ${LATEST_TAG} && ^
+                        docker run -d --restart unless-stopped -p ${EXPOSED_PORT}:${APP_PORT} --name ${CONTAINER_NAME} ${LATEST_TAG}"
                     """
                 }
             }
