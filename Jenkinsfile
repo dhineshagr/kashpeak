@@ -59,9 +59,9 @@ pipeline {
                     azureuser@${REMOTE_HOST} ^
                     "docker rm -f ${CONTAINER_NAME} || true && docker pull ${LATEST_TAG} && docker run -d --restart unless-stopped -p ${EXPOSED_PORT}:${APP_PORT} --name ${CONTAINER_NAME} ${LATEST_TAG}"
                 """
-             }
+            }
         }
-
+    }
 
     post {
         success {
