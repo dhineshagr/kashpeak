@@ -6,12 +6,13 @@ pipeline {
         IMAGE_TAG = "build-${BUILD_NUMBER}"
         DOCKER_IMAGE = "${IMAGE_NAME}:${IMAGE_TAG}"
         LATEST_TAG = "${IMAGE_NAME}:latest"
-        REMOTE_HOST = "172.174.98.154"
+        REMOTE_HOST = "20.127.197.227"
         SSH_CRED_ID = "azure-ssh-key"
         CONTAINER_NAME = "kashpeak"
         APP_PORT = "5000"
         EXPOSED_PORT = "5000"
-        HOST_KEY = "ssh-ed25519 255 SHA256:rD9ddrzyxYVBqKH+JItonJ6M+9sEMqgtJUg+PEGJxg0"
+        HOST_KEY = "ssh-ed25519 255 SHA256:EWM3xhcabwaMCY8uo9AapEhwHsBREpvpHA0+0cd+Fjs"
+
     }
 
     stages {
