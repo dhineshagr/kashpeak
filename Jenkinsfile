@@ -53,17 +53,15 @@ pipeline {
 
         stage('Deploy to Dev Server') {
             steps {
-                withCredentials([sshUserPrivateKey(credentialsId: SSH_CRED_ID, keyFileVariable: 'SSH_KEY')]) {
-                    bat """
-                        plink -batch -i "%SSH_KEY%" -hostkey "${HOST_KEY}" azureuser@${REMOTE_HOST} ^
-                        "docker rm -f ${CONTAINER_NAME} || true && ^
-                        docker pull ${LATEST_TAG} && ^
-                        docker run -d --restart unless-stopped -p ${EXPOSED_PORT}:${APP_PORT} --name ${CONTAINER_NAME} ${LATEST_TAG}"
-                    """
-                }
-            }
+                bat """
+                    plink -batch -i "C:\\KASH-TECH\\Deployment\\Production\\Kash-Operations-SSH-Key.ppk" ^
+                    -hostkey "${HOST_KEY}" ^
+                    azureuser@${REMOTE_HOST} ^
+                    "docker rm -f ${CONTAINER_NAME} || true && docker pull ${LATEST_TAG} && docker run -d --restart unless-stopped -p ${EXPOSED_PORT}:${APP_PORT} --name ${CONTAINER_NAME} ${LATEST_TAG}"
+                """
+             }
         }
-    }
+
 
     post {
         success {
