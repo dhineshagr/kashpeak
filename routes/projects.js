@@ -380,6 +380,21 @@ router.delete("/:sowId/role/:roleId", authenticateToken, async (req, res) => {
   }
 });
 
+// DELETE specific employee from a role
+router.delete("/:sowId/role/:roleId/employee/:empId", authenticateToken, async (req, res) => {
+  const { sowId, roleId, empId } = req.params;
+  try {
+    await db.query(
+      `DELETE FROM kash_operations_project_employee_table
+       WHERE sow_id = $1 AND role_id = $2 AND emp_id = $3`,
+      [sowId, roleId, empId]
+    );
+    res.status(200).json({ message: "Employee removed from role." });
+  } catch (err) {
+    console.error("❌ Error removing employee from role:", err);
+    res.status(500).json({ error: "Failed to remove employee from role." });
+  }
+});
 
 // GET /api/projects/:sowId/role-breakdown
 router.get("/:sowId/role-breakdown", authenticateToken, async (req, res) => {
