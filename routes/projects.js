@@ -252,10 +252,9 @@ router.get("/:sowId/employees", authenticateToken, async (req, res) => {
 
 // UPDATED: Assign Role Route with Logs
 router.post("/assign-role", authenticateToken, async (req, res) => {
+  console.log("🚀 Received POST /assign-role", req.body); // <-- Add this
+
   const { sow_id, role_id, estimated_hours } = req.body;
-
-  console.log("[assign-role] payload:", req.body);
-
   try {
     const result = await db.query(
       `INSERT INTO kash_operations_project_roles_table (sow_id, role_id, estimated_hours)
@@ -265,20 +264,20 @@ router.post("/assign-role", authenticateToken, async (req, res) => {
       [sow_id, role_id, estimated_hours]
     );
 
-    console.log("[assign-role] DB result:", result.rows);
-    res.status(200).json({ message: "Role assigned to project.", role: result.rows[0] });
+    console.log("✅ Role assignment saved:", result.rows[0]); // <-- Add this
+    res.status(200).json({ message: "Role assigned to project.", data: result.rows[0] });
   } catch (err) {
-    console.error("[assign-role] Error:", err);
+    console.error("❌ Error assigning role:", err);
     res.status(500).json({ error: "Failed to assign role." });
   }
 });
 
+
 // UPDATED: Assign Employee Route with Logs
 router.post("/assign-employee", authenticateToken, async (req, res) => {
+  console.log("📦 Received POST /assign-employee", req.body); // <-- Add this
+
   const { sow_id, emp_id, role_id } = req.body;
-
-  console.log("[assign-employee] payload:", req.body);
-
   if (!sow_id || !emp_id || !role_id) {
     return res.status(400).json({ error: "Missing required fields." });
   }
@@ -292,13 +291,14 @@ router.post("/assign-employee", authenticateToken, async (req, res) => {
       [sow_id, emp_id, role_id]
     );
 
-    console.log("[assign-employee] DB result:", result.rows);
-    res.status(200).json({ message: "Employee assigned to role successfully.", employee: result.rows[0] });
+    console.log("✅ Employee assignment saved:", result.rows[0]); // <-- Add this
+    res.status(200).json({ message: "Employee assigned to role successfully.", data: result.rows[0] });
   } catch (err) {
-    console.error("[assign-employee] Error:", err);
-    res.status(500).json({ error: "Failed to assign employee." });
+    console.error("❌ Error assigning employee:", err);
+    res.status(500).json({ error: "Failed to assign employee" });
   }
 });
+
 
 
 router.get("/:sowId/assigned-employees", authenticateToken, async (req, res) => {
