@@ -165,7 +165,7 @@ router.delete("/delete-entry-by-id/:entryId", authenticateToken, async (req, res
 
 
 // ✅ Get Companies by Billable Status
-router.get("/companies", async (req, res) => {
+router.get("/companies", authenticateToken, async (req, res) => {
   const { billable } = req.query;
 
   try {
@@ -187,6 +187,7 @@ router.get("/companies", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
 
 // ✅ Get Projects by Company
 router.get("/projects/:companyId", authenticateToken, async (req, res) => {
