@@ -284,6 +284,7 @@ router.get("/week/:empId/:weekStartDate", authenticateToken, async (req, res) =>
       `SELECT 
          t.*, 
          p.project_category, 
+         p.company_id,   
          c.company_name 
        FROM kash_operations_timesheet_table t
        LEFT JOIN kash_operations_created_projects_table p ON t.sow_id = p.sow_id
@@ -291,6 +292,7 @@ router.get("/week/:empId/:weekStartDate", authenticateToken, async (req, res) =>
        WHERE t.emp_id = $1 AND t.period_start_date = $2`,
       [empId, weekStartDate]
     );
+
 
     res.json(result.rows);
   } catch (err) {
