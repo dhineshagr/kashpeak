@@ -8,7 +8,8 @@ import metricRoutes from "./routes/metrics.js";
 import userRoutes from "./routes/user.js";
 import dashboardRoutes from "./routes/dashboard.js";
 import projectDetailsRoutes from "./routes/projectDetails.js"; 
-import employeeRoutes from "./routes/employees.js";
+//import employeeRoutes from "./routes/employees.js";
+import allemployeeRoutes from "./routes/employees.js";
 import manageClientsRoutes from "./routes/manageclients.js";
 import projectRoutes from "./routes/projects.js"; // ✅ correctly plural
 import timesheetRoutes from "./routes/timesheet.js";
@@ -32,7 +33,8 @@ app.use("/api/user", userRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/projects", projectRoutes); // ✅ manage projects (corrected)
 app.use("/api/projectdetails", projectDetailsRoutes); // view single project
-app.use("/api/employees", employeeRoutes);
+//app.use("/api/employees", employeeRoutes);
+app.use("/api/allemployees", allemployeeRoutes);
 app.use("/api/manageclients", manageClientsRoutes);
 app.use("/api/timesheet", timesheetRoutes);
 app.use("/api/openai", openaiRoutes);
