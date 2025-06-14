@@ -9,7 +9,7 @@ const router = express.Router();
  * Returns either all employees (Admin roles) or current user (Basic)
  */
 // routes/employee.js
-router.get("/employees", authenticateToken, async (req, res) => {
+router.get("/allemployees", authenticateToken, async (req, res) => {
   try {
     const { emp_id, role } = req.user;
 
@@ -22,7 +22,9 @@ router.get("/employees", authenticateToken, async (req, res) => {
 
     const formatted = result.rows.map((e) => ({
       emp_id: e.emp_id,
-      full_name: `${e.first_name} ${e.last_name}`,
+      first_name: e.first_name,
+      last_name: e.last_name,
+      full_name: `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim(),
     }));
 
     res.json(formatted);
@@ -31,6 +33,7 @@ router.get("/employees", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
 
 
 /**
