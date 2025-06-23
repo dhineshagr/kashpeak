@@ -446,5 +446,28 @@ router.get("/roles", authenticateToken, async (req, res) => {
   }
 });
 
+// ✅ CREATE new role
+router.post("/roles", authenticateToken, async (req, res) => {
+  const { role_name } = req.body;
+
+  if (!role_name || role_name.trim() === "") {
+    return res.status(400).json({ error: "Role name is required." });
+  }
+
+  try {
+    const result = await db.query(
+      `INSERT INTO kash_operations_roles_table (role_name)
+       VALUES ($1)
+       RETURNING role_id, role_name`,
+      [role_name.trim()]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("❌ Error creating new role:", err);
+    res.status(500).json({ error: "Failed to create role." });
+  }
+});
+
 
 export default router;
