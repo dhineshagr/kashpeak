@@ -185,4 +185,63 @@ router.delete("/:id", authenticateToken, async (req, res) => {
   }
 });
 
+// ✅ GET all industries
+router.get("/industries", authenticateToken, async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT DISTINCT industry AS name
+      FROM kash_operations_company_table
+      WHERE industry IS NOT NULL AND TRIM(industry) != ''
+      ORDER BY name
+    `);
+
+    // Return each as an object with "id" and "name" for frontend compatibility
+    const data = result.rows.map((row, index) => ({
+      id: index + 1,
+      name: row.name
+    }));
+
+    res.json(data);
+  } catch (err) {
+    console.error("Failed to fetch industries", err);
+    res.status(500).json({ error: "Could not retrieve industries" });
+  }
+});
+
+// ✅ POST create new industry (adds dummy client row with new industry name)
+router.post("/industries", authenticateToken, async (req, res) => {
+  const { name } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: "Industry name is required" });
+  }
+
+  try {
+    const trimmedName = name.trim();
+
+    // Check if the industry already exists
+    const existing = await db.query(
+      `SELECT 1 FROM kash_operations_company_table WHERE LOWER(industry) = LOWER($1) LIMIT 1`,
+      [trimmedName]
+    );
+
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: "Industry already exists" });
+    }
+
+    // Insert a dummy row to register the industry — safe but may be refactored later
+    const dummyCompanyId = `DUMMY${Date.now()}`;
+    await db.query(`
+      INSERT INTO kash_operations_company_table (
+        company_id, company_name, industry
+      ) VALUES ($1, $2, $3)
+    `, [dummyCompanyId, `Industry Placeholder - ${trimmedName}`, trimmedName]);
+
+    res.status(201).json({ name: trimmedName });
+  } catch (err) {
+    console.error("Failed to create industry", err);
+    res.status(500).json({ error: "Could not create industry" });
+  }
+});
+
 export default router;
