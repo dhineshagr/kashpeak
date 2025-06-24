@@ -60,11 +60,9 @@ router.get("/:sowId", authenticateToken, async (req, res) => {
 });
 
 // ✅ CREATE new project
-// ✅ CREATE new project
 router.post("/", authenticateToken, async (req, res) => {
   const {
     company_id,
-    sow_id,
     project_name,
     current_status,
     original_start_date,
@@ -73,10 +71,13 @@ router.post("/", authenticateToken, async (req, res) => {
     assigned_employees,
   } = req.body;
 
-  // Safely parse or default to null
   const parsedHours = total_projected_hours !== "" && !isNaN(total_projected_hours)
     ? parseInt(total_projected_hours)
     : null;
+
+  // 👇 Auto-generate SOW ID (customize prefix if needed)
+  const timestamp = Date.now().toString().slice(-6);
+  const sow_id = `SOW-${company_id}-${timestamp}`;
 
   try {
     const result = await db.query(
@@ -95,12 +96,9 @@ router.post("/", authenticateToken, async (req, res) => {
         assigned_employees || [],
       ]
     );
-    res.status(201).json(result.rows[0]);
+    res.status(201).json(result.rows[0]); // sow_id will be returned to frontend
   } catch (err) {
     console.error("Error creating project:", err);
-    if (err.code === "23505") {
-      return res.status(400).json({ error: `SOW ID '${sow_id}' already exists.` });
-    }
     res.status(500).json({ error: "Failed to create project" });
   }
 });
