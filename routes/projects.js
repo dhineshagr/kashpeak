@@ -250,10 +250,26 @@ router.get("/:sowId/employees", authenticateToken, async (req, res) => {
 
 // UPDATED: Assign Role Route with Logs
 router.post("/assign-role", authenticateToken, async (req, res) => {
-  console.log("🚀 Received POST /assign-role", req.body); // <-- Add this
-
   const { sow_id, role_id, estimated_hours } = req.body;
+
+  console.log("🚀 Incoming role assignment:", { sow_id, role_id, estimated_hours });
+
+  if (!sow_id || !role_id || !estimated_hours) {
+    return res.status(400).json({ error: "Missing required fields." });
+  }
+
+  // Check if role_id is valid
   try {
+    const roleCheck = await db.query(
+      `SELECT role_id FROM kash_operations_roles_table WHERE role_id = $1`,
+      [role_id]
+    );
+
+    if (roleCheck.rows.length === 0) {
+      console.error(`❌ Invalid role_id: ${role_id}`);
+      return res.status(400).json({ error: `Invalid role_id ${role_id}` });
+    }
+
     const result = await db.query(
       `INSERT INTO kash_operations_project_roles_table (sow_id, role_id, estimated_hours)
        VALUES ($1, $2, $3)
@@ -262,11 +278,12 @@ router.post("/assign-role", authenticateToken, async (req, res) => {
       [sow_id, role_id, estimated_hours]
     );
 
-    console.log("✅ Role assignment saved:", result.rows[0]); // <-- Add this
+    console.log("✅ Role assignment saved:", result.rows[0]);
     res.status(200).json({ message: "Role assigned to project.", data: result.rows[0] });
+
   } catch (err) {
-    console.error("❌ Error assigning role:", err);
-    res.status(500).json({ error: "Failed to assign role." });
+    console.error("❌ Error during role assignment DB op:", err.stack || err);
+    res.status(500).json({ error: "Failed to assign role (DB error)." });
   }
 });
 
