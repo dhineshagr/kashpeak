@@ -252,13 +252,13 @@ router.get("/:sowId/employees", authenticateToken, async (req, res) => {
 router.post("/assign-role", authenticateToken, async (req, res) => {
   const { sow_id, role_id, estimated_hours } = req.body;
 
-  console.log("🚀 Incoming role assignment:", { sow_id, role_id, estimated_hours });
+  console.log("🧾 Incoming Payload:", { sow_id, role_id, estimated_hours });
 
-  if (!sow_id || !role_id || !estimated_hours) {
+  if (!sow_id || !role_id || estimated_hours === undefined || estimated_hours === null) {
+    console.warn("🚫 Validation failed:", { sow_id, role_id, estimated_hours });
     return res.status(400).json({ error: "Missing required fields." });
   }
 
-  // Check if role_id is valid
   try {
     const roleCheck = await db.query(
       `SELECT role_id FROM kash_operations_roles_table WHERE role_id = $1`,
@@ -286,6 +286,7 @@ router.post("/assign-role", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Failed to assign role (DB error)." });
   }
 });
+
 
 
 // UPDATED: Assign Employee Route with Logs
