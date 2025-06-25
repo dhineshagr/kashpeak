@@ -288,26 +288,26 @@ router.post("/assign-role", authenticateToken, async (req, res) => {
 });
 
 
-
-// UPDATED: Assign Employee Route with Logs
+// Updated backend route to include employee rate
 router.post("/assign-employee", authenticateToken, async (req, res) => {
-  console.log("📦 Received POST /assign-employee", req.body); // <-- Add this
+  console.log("📦 Received POST /assign-employee", req.body);
 
-  const { sow_id, emp_id, role_id } = req.body;
+  const { sow_id, emp_id, role_id, rate } = req.body;
+
   if (!sow_id || !emp_id || !role_id) {
     return res.status(400).json({ error: "Missing required fields." });
   }
 
   try {
     const result = await db.query(
-      `INSERT INTO kash_operations_project_employee_table (sow_id, emp_id, role_id)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (sow_id, emp_id) DO UPDATE SET role_id = EXCLUDED.role_id
+      `INSERT INTO kash_operations_project_employee_table (sow_id, emp_id, role_id, rate)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (sow_id, emp_id) DO UPDATE SET role_id = EXCLUDED.role_id, rate = EXCLUDED.rate
        RETURNING *`,
-      [sow_id, emp_id, role_id]
+      [sow_id, emp_id, role_id, rate || null]
     );
 
-    console.log("✅ Employee assignment saved:", result.rows[0]); // <-- Add this
+    console.log("✅ Employee assignment saved:", result.rows[0]);
     res.status(200).json({ message: "Employee assigned to role successfully.", data: result.rows[0] });
   } catch (err) {
     console.error("❌ Error assigning employee:", err);
