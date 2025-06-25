@@ -335,9 +335,10 @@ router.get("/:sowId/assigned-employees", authenticateToken, async (req, res) => 
   }
 });
 
-// ✅ GET all role assignments for a project (roles + employees per role)
+// ✅ UPDATED: GET role assignments with employee rates
 router.get("/:sowId/assignments", authenticateToken, async (req, res) => {
   const { sowId } = req.params;
+
   try {
     const rolesResult = await db.query(
       `SELECT pr.role_id, r.role_name, pr.estimated_hours
@@ -351,27 +352,31 @@ router.get("/:sowId/assignments", authenticateToken, async (req, res) => {
 
     for (const role of rolesResult.rows) {
       const empResult = await db.query(
-        `SELECT emp_id FROM kash_operations_project_employee_table
+        `SELECT emp_id, rate FROM kash_operations_project_employee_table
          WHERE sow_id = $1 AND role_id = $2`,
         [sowId, role.role_id]
       );
 
-      const employeeIds = empResult.rows.map((row) => row.emp_id);
+      const employees = empResult.rows.map(row => ({
+        emp_id: row.emp_id,
+        rate: row.rate,
+      }));
 
       assignments.push({
         role_id: role.role_id,
         role_name: role.role_name,
         estimated_hours: role.estimated_hours,
-        employees: employeeIds,
+        employees_with_rates: employees,  // NEW
       });
     }
 
     res.status(200).json(assignments);
   } catch (err) {
-    console.error("Error fetching role assignments:", err);
+    console.error("❌ Error fetching role assignments:", err);
     res.status(500).json({ error: "Failed to fetch role assignments." });
   }
 });
+
 
 // DELETE /api/projects/:sowId/role/:roleId
 router.delete("/:sowId/role/:roleId", authenticateToken, async (req, res) => {
