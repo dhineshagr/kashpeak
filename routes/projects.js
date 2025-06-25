@@ -490,5 +490,29 @@ router.post("/roles", authenticateToken, async (req, res) => {
   }
 });
 
+// ✅ GET project name + client name for Role-wise Breakdown header
+router.get("/:sowId/info", authenticateToken, async (req, res) => {
+  const { sowId } = req.params;
+
+  try {
+    const result = await db.query(`
+      SELECT 
+        p.project_category AS project_name,
+        c.company_name
+      FROM kash_operations_created_projects_table p
+      JOIN kash_operations_company_table c ON p.company_id = c.company_id
+      WHERE p.sow_id = $1
+    `, [sowId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Project not found." });
+    }
+
+    res.status(200).json(result.rows[0]);
+  } catch (err) {
+    console.error("❌ Error fetching project info:", err);
+    res.status(500).json({ error: "Failed to fetch project info." });
+  }
+});
 
 export default router;
