@@ -94,7 +94,7 @@ router.get("/timesheet/invoice-data", authenticateToken, async (req, res) => {
     const result = await db.query(
       `
 SELECT 
-  v.emp_id, -- ✅ ADD THIS
+  v.emp_id,
   u.first_name,
   u.last_name,
   r.role_name AS role,
@@ -102,7 +102,8 @@ SELECT
   cp.project_category AS project_name,
   v.sub_assignment AS work_area,
   v.sub_assignment_segment_1 AS task_area,
-  SUM(v.task_hours) AS hours
+  SUM(v.task_hours) AS hours,
+  pe.rate  -- ✅ NEW: pull rate from assignment table
 FROM v_kash_operations_timesheet_table_date v
 JOIN kash_operations_user_table u ON v.emp_id = u.emp_id
 JOIN kash_operations_project_employee_table pe ON pe.emp_id = u.emp_id AND pe.sow_id = v.sow_id
@@ -111,11 +112,11 @@ LEFT JOIN kash_operations_created_projects_table cp ON cp.sow_id = v.sow_id
 WHERE v.sow_id = ANY($1)
   AND v.entry_date BETWEEN $2 AND $3
 GROUP BY 
-  v.emp_id, -- ✅ ADD TO GROUP BY
-  u.first_name, u.last_name, r.role_name, v.sow_id,
+  v.emp_id, u.first_name, u.last_name, r.role_name, v.sow_id,
   v.sub_assignment, v.sub_assignment_segment_1,
-  cp.project_category
+  cp.project_category, pe.rate -- ✅ Add pe.rate to GROUP BY
 ORDER BY v.sow_id, u.first_name;
+
 
       `,
       [sowIdArray, startDate, endDate]
