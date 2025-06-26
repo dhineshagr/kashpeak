@@ -166,7 +166,8 @@ router.post("/", authenticateToken, async (req, res) => {
       fields.emp_location_country,
       fields.employee_zip_code
     ];
-
+    
+    console.log("Inserting values:", values);
     const result = await db.query(insertQuery, values);
 
     console.log("✅ New employee added with ID:", generatedEmpId);
