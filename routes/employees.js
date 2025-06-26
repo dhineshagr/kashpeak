@@ -148,7 +148,6 @@ router.post("/", authenticateToken, async (req, res) => {
       ) RETURNING *
     `;
 
-    console.log("Inserting values:", values);
     const values = [
       generatedEmpId,
       fields.first_name,
