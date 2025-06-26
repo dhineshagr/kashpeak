@@ -148,6 +148,7 @@ router.post("/", authenticateToken, async (req, res) => {
       ) RETURNING *
     `;
 
+    console.log("Inserting values:", values);
     const values = [
       generatedEmpId,
       fields.first_name,
@@ -172,7 +173,7 @@ router.post("/", authenticateToken, async (req, res) => {
     console.log("✅ New employee added with ID:", generatedEmpId);
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error("❌ Error inserting employee:", err);
+    console.error("❌ Error inserting employee:", err.message, err.stack);
     res.status(500).json({ error: "Failed to insert employee" });
   }
 });
