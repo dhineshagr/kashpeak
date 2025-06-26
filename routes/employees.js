@@ -117,7 +117,7 @@ router.post("/", authenticateToken, async (req, res) => {
 
   try {
     // 🔧 Step 1: Auto-generate emp_id (e.g., EMP-123456)
-    let generatedEmpId = `EMP-${Date.now().toString().slice(-6)}`;
+    let generatedEmpId = parseInt(Date.now().toString().slice(-6), 10);
 
     // 🔄 Optional Safety: Check for collision (very unlikely)
     const checkResult = await db.query(
