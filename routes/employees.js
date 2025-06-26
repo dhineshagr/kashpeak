@@ -116,15 +116,20 @@ router.post("/", authenticateToken, async (req, res) => {
   const fields = req.body;
 
   try {
+    // 🔧 Step 1: Auto-generate emp_id (e.g., EMP-123456)
+    let generatedEmpId = `EMP-${Date.now().toString().slice(-6)}`;
+
+    // 🔄 Optional Safety: Check for collision (very unlikely)
     const checkResult = await db.query(
       "SELECT emp_id FROM kash_operations_user_table WHERE emp_id = $1",
-      [fields.emp_id]
+      [generatedEmpId]
     );
 
     if (checkResult.rows.length > 0) {
-      return res.status(400).json({ error: "Employee ID already exists" });
+      return res.status(400).json({ error: "Generated Employee ID already exists. Please retry." });
     }
 
+    // 🧠 Step 2: Prepare insert query
     const insertQuery = `
       INSERT INTO kash_operations_user_table (
         emp_id, first_name, middle_name, last_name,
@@ -144,21 +149,34 @@ router.post("/", authenticateToken, async (req, res) => {
     `;
 
     const values = [
-      fields.emp_id, fields.first_name, fields.middle_name || "", fields.last_name,
-      fields.kash_operations_usn, fields.admin_level, fields.employee_status,
-      fields.employee_type, fields.email_address, fields.phone_number,
-      fields.employee_address, fields.employee_address_line2 || "",
-      fields.emp_location_city, fields.emp_location_state,
-      fields.emp_location_country, fields.employee_zip_code
+      generatedEmpId,
+      fields.first_name,
+      fields.middle_name || "",
+      fields.last_name,
+      fields.kash_operations_usn,
+      fields.admin_level,
+      fields.employee_status,
+      fields.employee_type,
+      fields.email_address,
+      fields.phone_number,
+      fields.employee_address,
+      fields.employee_address_line2 || "",
+      fields.emp_location_city,
+      fields.emp_location_state,
+      fields.emp_location_country,
+      fields.employee_zip_code
     ];
 
     const result = await db.query(insertQuery, values);
+
+    console.log("✅ New employee added with ID:", generatedEmpId);
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error("Error inserting employee:", err);
+    console.error("❌ Error inserting employee:", err);
     res.status(500).json({ error: "Failed to insert employee" });
   }
 });
+
 
 /**
  * PUT /api/employees/:id
