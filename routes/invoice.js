@@ -82,13 +82,10 @@ router.get("/", authenticateToken, async (req, res) => {
 
 // ✅ Get timesheet invoice data for selected projects & date range (with project name)
 router.get("/timesheet/invoice-data", authenticateToken, async (req, res) => {
-  const { companyId, projectIds, startDate, endDate } = req.query;
-
-  if (!projectIds || !startDate || !endDate) {
+  const { companyId, startDate, endDate } = req.query;
+  if (!companyId || !startDate || !endDate) {
     return res.status(400).json({ error: "Missing required parameters" });
   }
-
-  const sowIdArray = projectIds.split(",");
 
   try {
     const result = await db.query(
@@ -100,34 +97,49 @@ SELECT
   r.role_name AS role,
   v.sow_id,
   cp.project_category AS project_name,
-  v.sub_assignment AS work_area,
+  v.sub_assignment       AS work_area,
   v.sub_assignment_segment_1 AS task_area,
-  SUM(v.task_hours) AS hours,
-  pe.rate  -- ✅ NEW: pull rate from assignment table
+  SUM(v.task_hours)     AS hours,
+  pe.rate               AS rate
 FROM v_kash_operations_timesheet_table_date v
-JOIN kash_operations_user_table u ON v.emp_id = u.emp_id
-JOIN kash_operations_project_employee_table pe ON pe.emp_id = u.emp_id AND pe.sow_id = v.sow_id
-JOIN kash_operations_roles_table r ON pe.role_id = r.role_id
-LEFT JOIN kash_operations_created_projects_table cp ON cp.sow_id = v.sow_id
-WHERE v.sow_id = ANY($1)
+JOIN kash_operations_user_table u 
+  ON v.emp_id = u.emp_id
+LEFT JOIN kash_operations_created_projects_table cp 
+  ON cp.sow_id = v.sow_id
+
+- -- Inner join was filtering out any un-assigned employees:
+- JOIN kash_operations_project_employee_table pe 
+-   ON pe.sow_id = v.sow_id AND pe.emp_id = v.emp_id
+- JOIN kash_operations_roles_table r 
+-   ON pe.role_id = r.role_id
+
++ -- Change to LEFT JOIN so we get everyone who logged time:
++ LEFT JOIN kash_operations_project_employee_table pe 
++   ON pe.sow_id = v.sow_id AND pe.emp_id = v.emp_id
++ LEFT JOIN kash_operations_roles_table r 
++   ON pe.role_id = r.role_id
+
+WHERE cp.company_id = $1
   AND v.entry_date BETWEEN $2 AND $3
 GROUP BY 
-  v.emp_id, u.first_name, u.last_name, r.role_name, v.sow_id,
+  v.emp_id, u.first_name, u.last_name,
+  r.role_name, v.sow_id,
+  cp.project_category,
   v.sub_assignment, v.sub_assignment_segment_1,
-  cp.project_category, pe.rate -- ✅ Add pe.rate to GROUP BY
-ORDER BY v.sow_id, u.first_name;
-
-
+  pe.rate
+ORDER BY
+  v.sow_id, u.first_name;
       `,
-      [sowIdArray, startDate, endDate]
+      [companyId, startDate, endDate]
     );
 
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Failed to load timesheet invoice data:", err);
-    res.status(500).json({ error: "Failed to load timesheet invoice data" });
+    res.status(500).json({ error: "Failed to load invoice data" });
   }
 });
+
 
 // Save invoice
 router.post("/", authenticateToken, async (req, res) => {
