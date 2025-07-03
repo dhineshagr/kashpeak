@@ -81,6 +81,7 @@ router.get("/", authenticateToken, async (req, res) => {
 });
 
 // ✅ Get timesheet invoice data for selected projects & date range (with project name)
+// GET /api/invoices/timesheet/invoice-data
 router.get("/timesheet/invoice-data", authenticateToken, async (req, res) => {
   const { companyId, startDate, endDate } = req.query;
   if (!companyId || !startDate || !endDate) {
@@ -94,7 +95,7 @@ SELECT
   v.emp_id,
   u.first_name,
   u.last_name,
-  r.role_name AS role,
+  r.role_name   AS role,
   v.sow_id,
   cp.project_category AS project_name,
   v.sub_assignment       AS work_area,
@@ -102,26 +103,18 @@ SELECT
   SUM(v.task_hours)     AS hours,
   pe.rate               AS rate
 FROM v_kash_operations_timesheet_table_date v
-JOIN kash_operations_user_table u 
+JOIN kash_operations_user_table u
   ON v.emp_id = u.emp_id
-LEFT JOIN kash_operations_created_projects_table cp 
+LEFT JOIN kash_operations_created_projects_table cp
   ON cp.sow_id = v.sow_id
-
-- -- Inner join was filtering out any un-assigned employees:
-- JOIN kash_operations_project_employee_table pe 
--   ON pe.sow_id = v.sow_id AND pe.emp_id = v.emp_id
-- JOIN kash_operations_roles_table r 
--   ON pe.role_id = r.role_id
-
-+ -- Change to LEFT JOIN so we get everyone who logged time:
-+ LEFT JOIN kash_operations_project_employee_table pe 
-+   ON pe.sow_id = v.sow_id AND pe.emp_id = v.emp_id
-+ LEFT JOIN kash_operations_roles_table r 
-+   ON pe.role_id = r.role_id
-
+LEFT JOIN kash_operations_project_employee_table pe
+  ON pe.sow_id = v.sow_id
+ AND pe.emp_id = v.emp_id
+LEFT JOIN kash_operations_roles_table r
+  ON pe.role_id = r.role_id
 WHERE cp.company_id = $1
   AND v.entry_date BETWEEN $2 AND $3
-GROUP BY 
+GROUP BY
   v.emp_id, u.first_name, u.last_name,
   r.role_name, v.sow_id,
   cp.project_category,
