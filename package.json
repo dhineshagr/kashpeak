@@ -22,6 +22,7 @@
     "docxtemplater": "^3.61.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "fast-xml-parser": "^5.2.5",
     "file-saver": "^2.0.5",
     "fs": "^0.0.1-security",
     "html-docx-js": "^0.3.1",
@@ -35,7 +36,7 @@
     "openai": "^4.96.2",
     "path": "^0.12.7",
     "pg": "^8.14.1",
-    "pizzip": "^3.1.8",
+    "pizzip": "^3.2.0",
     "sanitize-html": "^2.16.0",
     "unzipper": "^0.12.3"
   },
