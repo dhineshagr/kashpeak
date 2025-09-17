@@ -62,10 +62,52 @@ router.post("/generate-preview-doc", authenticateToken, async (req, res) => {
         };
 
         // expand this with different specific keys later instead of an number added to the end
-        
-        
-        return res.send(finalDocxBuffer);
-        
+        // Read template
+        const docxBuffer = fs.readFileSync(TEMPLATE_PATH);
+
+        // Convert DOCX -> HTML
+        const { value: rawHtml /*, messages */ } = await mammoth.convertToHtml(
+            { buffer: docxBuffer },
+            {
+                convertImage: mammoth.images.inline((image) => {
+                    // Inline images as data URLs for preview
+                    return image.read("base64").then((b64) => ({
+                        src: `data:${image.contentType};base64,${b64}`,
+                    }));
+                }),
+                // styleMap: [], // optional
+            }
+        );
+
+        // --- helpers ---
+        function escapeRegExp(s) {
+            return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        }
+        function escapeHtml(str = "") {
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+        function normalizeValueForHtml(value) {
+            return escapeHtml(value ?? "").replace(/\r?\n/g, "<br>");
+        }
+        // ---------------
+
+        // Replace %%PLACEHOLDER%% tokens in the HTML
+        let previewHtml = rawHtml;
+        for (const [key, rawVal] of Object.entries(replacements)) {
+            const token = `%%${key}%%`;
+            const val = normalizeValueForHtml(rawVal);
+            const re = new RegExp(escapeRegExp(token), "g");
+            previewHtml = previewHtml.replace(re, val);
+        }
+
+        // Return the preview HTML (not a DOCX buffer)
+        return res.status(200).json({ previewHtml });
+
     } catch (err) {
         console.error("❌ Error rendering preview", err);
         res.status(500).json({ error: "Failed to render preview" });
@@ -213,8 +255,7 @@ router.post("/generate-preview-msa", authenticateToken, async (req, res) => {
             ENDDATE: endDate
         };
 
-        const MSA_TEMPLATE_PATH = path.join(__dirname, "../assets/KashTech_Sample_MSA_with_Placeholders.docx");
-        const docxBuffer = fs.readFileSync(MSA_TEMPLATE_PATH);
+        const docxBuffer = fs.readFileSync(TEMPLATE_PATH);
         const { value: rawHtml } = await mammoth.convertToHtml({ buffer: docxBuffer });
 
         let renderedHtml = rawHtml;
@@ -223,7 +264,8 @@ router.post("/generate-preview-msa", authenticateToken, async (req, res) => {
             renderedHtml = renderedHtml.replace(regex, val);
         }
 
-        res.json({ previewHtml: renderedHtml });
+        return res.status(200).json({ previewHtml });
+
     } catch (err) {
         console.error("❌ Error rendering MSA preview", err);
         res.status(500).json({ error: "Failed to render MSA preview" });

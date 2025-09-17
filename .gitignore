@@ -20,3 +20,5 @@ node_modules/pizzip/js/support.js
 node_modules/pizzip/js/utils.js
 node_modules/pizzip/package.json
 node_modules/pizzip/symlink.sh
+.env
+.env
