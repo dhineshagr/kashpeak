@@ -63,6 +63,7 @@ router.get("/", authenticateToken, async (req, res) => {
     }));
 
     res.json(enriched);
+    
   } catch (err) {
     console.error("❌ Error fetching clients", err);
     res.status(500).json({ error: "Failed to fetch clients" });

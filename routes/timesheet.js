@@ -166,22 +166,67 @@ router.delete("/delete-entry-by-id/:entryId", authenticateToken, async (req, res
 
 // ✅ Get Companies by Billable Status
 router.get("/companies", authenticateToken, async (req, res) => {
+
+  const empId = req.user?.emp_id;
+  console.log("Getting companies for emp_id:", empId);
+
   const { billable } = req.query;
 
+  if (billable === undefined) {
+    return res.status(400).json({ error: "Missing billable query param" });
+  }
+
+  const isBillable = billable === "true";
+
   try {
-    if (billable === undefined) {
-      return res.status(400).json({ error: "Missing billable query param" });
+    // 1. Get user role
+    const roleQuery = await db.query(
+      "SELECT admin_level FROM kash_operations_user_table WHERE emp_id = $1",
+      [empId]
+    );
+    const adminLevel = roleQuery.rows[0]?.admin_level || "Basic";
+
+    let result;
+
+    // 2. Super Admin → All companies
+    if (adminLevel === "Super Admin") {
+      result = await db.query(
+        `
+        SELECT company_id, company_name
+        FROM public.kash_operations_company_table
+        WHERE COALESCE(is_billable, false) = $1
+        ORDER BY company_name
+        `,
+        [isBillable]
+      );
+    }
+    // 3. Admin → Only their mapped companies
+    else if (adminLevel === "Admin") {
+      result = await db.query(
+        `
+        SELECT c.company_id, c.company_name
+        FROM public.kash_operations_company_table c
+        JOIN public.kash_operations_company_admin_role_table a
+          ON c.company_id = a.company_id
+        WHERE COALESCE(c.is_billable, false) = $1
+          AND a.emp_id = $2
+        ORDER BY c.company_name
+        `,
+        [isBillable, empId]
+      );
+    }
+    // 4. Basic → No companies
+    else {
+      result = { rows: [] };
     }
 
-    const isBillable = billable === "true";
-    const result = await db.query(
-      `SELECT company_id, company_name 
-       FROM kash_operations_company_table 
-       WHERE is_billable = $1`,
-      [isBillable]
+    console.log(
+      `Companies fetched (role=${adminLevel}, billable=${isBillable}):`,
+      JSON.stringify(result.rows)
     );
 
     res.json(result.rows);
+
   } catch (err) {
     console.error("Error fetching companies by billable state:", err);
     res.status(500).json({ error: "Server error" });
