@@ -38,7 +38,8 @@
     "pg": "^8.14.1",
     "pizzip": "^3.2.0",
     "sanitize-html": "^2.16.0",
-    "unzipper": "^0.12.3"
+    "unzipper": "^0.12.3",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"

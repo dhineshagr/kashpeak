@@ -40,7 +40,7 @@ router.get("/", authenticateToken, async (req, res) => {
         ON a.kash_operations_usn = u.kash_operations_usn
       WHERE u.admin_level IS NOT NULL AND u.admin_level IN ('Admin', 'Super Admin')
     `);
-    console.log("✅ Filtered Admins Returned:", adminRes.rows); // ✅ Now safe
+    // console.log("✅ Filtered Admins Returned:", adminRes.rows); // ✅ Now safe
 
     // 3. Build a map of admins per company
     const adminMap = {};
@@ -63,7 +63,7 @@ router.get("/", authenticateToken, async (req, res) => {
     }));
 
     res.json(enriched);
-    
+
   } catch (err) {
     console.error("❌ Error fetching clients", err);
     res.status(500).json({ error: "Failed to fetch clients" });

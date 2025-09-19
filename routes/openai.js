@@ -1,6 +1,9 @@
 // File: routes/openai.js
 import express from "express";
 import { OpenAI } from "openai";
+import { z } from "zod";
+import { zodTextFormat } from "openai/helpers/zod";
+
 import { authenticateToken } from "./auth.js";
 import fs from "fs";
 import path from "path";
@@ -183,28 +186,63 @@ router.get("/download-edited-doc", authenticateToken, async (req, res) => {
     }
 });
 
-// ✅ 2. Apply GPT-based edits to the HTML
-router.post("/edit-doc", authenticateToken, async (req, res) => {
-    const { originalContent, instruction } = req.body;
-
-    try {
-        const prompt = `Edit the following HTML based on instruction: "${instruction}". Return only clean HTML.`;
-        const response = await openai.chat.completions.create({
-            model: "gpt-4",
-            messages: [
-                { role: "user", content: prompt },
-                { role: "assistant", content: originalContent },
-            ],
-        });
-
-        const edited = response.choices?.[0]?.message?.content;
-        res.json({ content: edited });
-    } catch (err) {
-        console.error("❌ Edit failed", err);
-        res.status(500).json({ error: "Failed to edit document" });
-    }
+const EditSchema = z.object({
+  edited_text: z.string().describe("The edited version of the selected text. No quotes or extra commentary."),
 });
 
+// ✅ 2. Apply GPT-based edits to the HTML
+router.post("/edit-doc", authenticateToken, async (req, res) => {
+  const { originalContent, rewriteInstruction } = req.body;
+
+  if (typeof originalContent !== "string" || !originalContent.trim()) {
+    return res.status(400).json({ error: "originalContent is required" });
+  }
+  if (typeof rewriteInstruction !== "string" || !rewriteInstruction.trim()) {
+    return res.status(400).json({ error: "rewriteInstruction is required" });
+  }
+
+  const systemInstruction = `You a highly skilled legal document editor. 
+  You are always provided with an excerpt from an original legal document along with a question, instruction, or request about how to edit that excerpt.
+  You must follow the instruction precisely and ONLY return the edited text.
+  You must not add any commentary, notes, or additional text.
+  Return the edited text in with the appopriate editing applied.`;
+
+  console.log("📝 Edit request:", { originalContent, rewriteInstruction });
+
+  try {
+    const resp = await openai.responses.parse({
+      model: "gpt-5-nano", // model with structured output support
+      input: [
+        {
+          role: "system",
+          content: systemInstruction,
+        },
+        {
+          role: "user",
+          content:
+            `INSTRUCTION:\n${rewriteInstruction}\n\nSELECTED_TEXT:\n${originalContent}`,
+        },
+      ],
+      text: {
+        // Enforce JSON shape { edited_text: string }
+        format: zodTextFormat(EditSchema, "edit"),
+      },
+    });
+
+    // Parsed, typed object
+    const parsed = resp.output_parsed; // { edited_text: "..." }
+    const editedText = (parsed?.edited_text ?? "").trim();
+
+    console.log("✅ Edit response:", { editedText });
+
+    // Return exactly what your front end expects
+    return res.json({ content: editedText });
+
+  } catch (err) {
+     console.error("❌ Fallback edit failed:", e2);
+      return res.status(500).json({ error: "Failed to edit document" });
+  }
+});
 
 
 ////////////////////////////////////////////////////MSA
