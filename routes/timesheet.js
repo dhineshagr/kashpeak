@@ -15,6 +15,9 @@ const parseNumber = (val) => {
 router.post("/add-batch", authenticateToken, async (req, res) => {
   const { entries } = req.body;
 
+  console.log("➡️ Received entries to add:", entries?.length || 0, "of length", entries?.length || 0);
+  console.log("Received entries full data:", JSON.stringify(entries));
+
   if (!Array.isArray(entries) || entries.length === 0) {
     return res.status(400).json({ message: "No entries provided" });
   }
@@ -28,17 +31,20 @@ router.post("/add-batch", authenticateToken, async (req, res) => {
         continue;
       }
 
+      /*
       // 🔁 Check if this combination already exists
       const existing = await db.query(
         `SELECT timesheet_entry_id FROM kash_operations_timesheet_table
          WHERE emp_id = $1 AND sow_id = $2 AND period_start_date = $3`,
         [emp_id, sow_id, period_start_date]
       );
+      
 
       if (existing.rows.length > 0) {
         console.log(`⚠️ Skipping existing entry for emp ${emp_id}, sow ${sow_id}, week ${period_start_date}`);
         continue;
       }
+      */
 
       // 🔁 Insert if new
       await db.query(
@@ -75,6 +81,8 @@ router.post("/add-batch", authenticateToken, async (req, res) => {
       );
     }
 
+    console.log("✅ Batch insert completed for entries:", entries.length);
+
     res.status(200).json({ message: "✅ Timesheet batch saved. Duplicates skipped." });
   } catch (err) {
     console.error("❌ Insert error:", err);
@@ -86,36 +94,50 @@ router.post("/add-batch", authenticateToken, async (req, res) => {
 router.put("/update-entry", authenticateToken, async (req, res) => {
   const { entries } = req.body;
 
+
+  console.log("➡️ Received entries to update:", JSON.stringify(entries) || 0, "of length", entries?.length || 0);
+
   if (!Array.isArray(entries) || entries.length === 0) {
     return res.status(400).json({ message: "No entries to update" });
   }
 
   try {
-    const updatePromises = entries.map((entry) =>
-      db.query(
-        `UPDATE kash_operations_timesheet_table SET
-          billable = $4,
-          non_billable_reason = $5,
-          ticket_num = $6,
-          monday_hours = $7,
-          tuesday_hours = $8,
-          wednesday_hours = $9,
-          thursday_hours = $10,
-          friday_hours = $11,
-          saturday_hours = $12,
-          sunday_hours = $13,
-          sub_assignment = $14,
-          sub_assignment_segment_1 = $15,
-          sub_assignment_segment_2 = $16,
-          timesheet_status_entry = $17
-        WHERE emp_id = $1 AND sow_id = $2 AND period_start_date = $3`,
-        [
-          entry.emp_id,
-          entry.sow_id,
-          entry.period_start_date,
+    // Do not short-circuit on one failure—collect per-row outcome
+    const results = await Promise.allSettled(
+      entries.map((entry) => {
+        
+        if (!entry.timesheet_entry_id) {
+          throw new Error("Missing timesheet_entry_id on update entry");
+        }
+
+        // If you want an extra safety rail, also require emp_id to match:
+        const useEmpGuard = true;
+
+        const sql = `
+          UPDATE kash_operations_timesheet_table SET
+            billable = $1,
+            non_billable_reason = $2,
+            ticket_num = $3,
+            monday_hours = $4,
+            tuesday_hours = $5,
+            wednesday_hours = $6,
+            thursday_hours = $7,
+            friday_hours = $8,
+            saturday_hours = $9,
+            sunday_hours = $10,
+            sub_assignment = $11,
+            sub_assignment_segment_1 = $12,
+            sub_assignment_segment_2 = $13,
+            timesheet_status_entry = $14
+          WHERE timesheet_entry_id = $15
+          ${useEmpGuard ? "AND emp_id = $16" : ""}
+          RETURNING timesheet_entry_id
+        `;
+
+        const params = [
           entry.billable,
-          entry.non_billable_reason,
-          entry.ticket_num,
+          entry.non_billable_reason ?? null,
+          entry.ticket_num ?? null,
           parseNumber(entry.monday_hours),
           parseNumber(entry.tuesday_hours),
           parseNumber(entry.wednesday_hours),
@@ -123,16 +145,42 @@ router.put("/update-entry", authenticateToken, async (req, res) => {
           parseNumber(entry.friday_hours),
           parseNumber(entry.saturday_hours),
           parseNumber(entry.sunday_hours),
-          entry.sub_assignment,
-          entry.sub_assignment_segment_1,
-          entry.sub_assignment_segment_2,
-          entry.timesheet_status_entry,
-        ]
-      )
+          entry.sub_assignment ?? null,
+          entry.sub_assignment_segment_1 ?? null,
+          entry.sub_assignment_segment_2 ?? null,
+          entry.timesheet_status_entry ?? "Submitted",
+          entry.timesheet_entry_id,
+          ...(useEmpGuard ? [entry.emp_id] : []),
+        ];
+
+        return db.query(sql, params);
+      })
     );
 
-    await Promise.all(updatePromises);
+    const updated = [];
+    const failed = [];
+
+    results.forEach((r, i) => {
+      const id = entries[i]?.timesheet_entry_id;
+      if (r.status === "fulfilled") {
+        if (r.value.rowCount === 0) {
+          failed.push({ id, reason: "not found or emp_id mismatch" });
+        } else {
+          updated.push(r.value.rows[0].timesheet_entry_id);
+        }
+      } else {
+        failed.push({ id, reason: r.reason?.message || String(r.reason) });
+      }
+    });
+    
+    console.log(`✅ Updated entries: ${updated.length}`, updated);
+
+    if (failed.length > 0) {
+      console.warn(`⚠️ Failed to update entries: ${failed.length}`, failed);
+    }
+
     return res.status(200).json({ message: "Timesheet entries updated successfully" });
+    
   } catch (err) {
     console.error("Update error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -142,6 +190,8 @@ router.put("/update-entry", authenticateToken, async (req, res) => {
 // ✅ Delete Timesheet Entry by ID
 router.delete("/delete-entry-by-id/:entryId", authenticateToken, async (req, res) => {
   const { entryId } = req.params;
+
+  console.log("➡️ Deleting entryId:", entryId);
 
   try {
     const result = await db.query(
@@ -163,23 +213,51 @@ router.delete("/delete-entry-by-id/:entryId", authenticateToken, async (req, res
 });
 
 
-
 // ✅ Get Companies by Billable Status
 router.get("/companies", authenticateToken, async (req, res) => {
+  const empId = req.user?.emp_id;
+  // console.log("Getting companies for emp_id:", empId);
+
   const { billable } = req.query;
 
+  if (billable === undefined) {
+    return res.status(400).json({ error: "Missing billable query param" });
+  }
+
+  const isBillable = billable === "true";
+
   try {
-    if (billable === undefined) {
-      return res.status(400).json({ error: "Missing billable query param" });
+    // Get user role (still useful for Basic check)
+    const roleQuery = await db.query(
+      "SELECT admin_level FROM kash_operations_user_table WHERE emp_id = $1",
+      [empId]
+    );
+    const adminLevel = roleQuery.rows[0]?.admin_level || "Basic";
+
+    let result;
+
+    if (adminLevel === "Super Admin" || adminLevel === "Admin") {
+      // ✅ Both see all companies
+      result = await db.query(
+        `
+        SELECT company_id, company_name
+        FROM public.kash_operations_company_table
+        WHERE COALESCE(is_billable, false) = $1
+        ORDER BY company_name
+        `,
+        [isBillable]
+      );
+    } else {
+      // Basic (or any other role) → no companies
+      result = { rows: [] };
     }
 
-    const isBillable = billable === "true";
-    const result = await db.query(
-      `SELECT company_id, company_name 
-       FROM kash_operations_company_table 
-       WHERE is_billable = $1`,
-      [isBillable]
+    /*
+    console.log(
+      `Companies fetched (role=${adminLevel}, billable=${isBillable}):`,
+      JSON.stringify(result.rows)
     );
+    */
 
     res.json(result.rows);
   } catch (err) {
@@ -293,6 +371,8 @@ router.get("/week/:empId/:weekStartDate", authenticateToken, async (req, res) =>
       [empId, weekStartDate]
     );
 
+    console.log(`✅ Fetched ${result.rows.length} timesheet entries for empId=${empId}, weekStartDate=${weekStartDate}`);
+
 
     res.json(result.rows);
   } catch (err) {
@@ -303,11 +383,18 @@ router.get("/week/:empId/:weekStartDate", authenticateToken, async (req, res) =>
 
 
 // ✅ Get Timesheet Report by Week with Filters
-// ✅ Get Timesheet Report by Week with Filters
 router.get("/report", authenticateToken, async (req, res) => {
+  const empId = req.user?.emp_id;
   const { startDate, endDate, clients, projects, employees, billable } = req.query;
 
   try {
+    // 1. Get user role
+    const roleQuery = await db.query(
+      "SELECT admin_level FROM kash_operations_user_table WHERE emp_id = $1",
+      [empId]
+    );
+    const adminLevel = roleQuery.rows[0]?.admin_level || "Basic";
+
     let query = `
       SELECT 
         t.emp_id,
@@ -327,12 +414,25 @@ router.get("/report", authenticateToken, async (req, res) => {
       JOIN kash_operations_user_table u ON t.emp_id = u.emp_id
       JOIN kash_operations_created_projects_table p ON t.sow_id = p.sow_id
       JOIN kash_operations_company_table c ON p.company_id = c.company_id
-      WHERE 1=1
     `;
 
     const conditions = [];
     const values = [];
 
+    // 2. Role-based company restriction
+    if (adminLevel === "Admin") {
+      query += `
+        JOIN kash_operations_company_admin_role_table a 
+          ON c.company_id = a.company_id
+      `;
+      conditions.push(`a.emp_id = $${values.length + 1}`);
+      values.push(empId);
+    } else if (adminLevel === "Basic") {
+      // Option A: Restrict to no companies
+      return res.json([]);
+    }
+
+    // 3. Dynamic filters
     if (startDate && endDate) {
       conditions.push(`t.period_start_date BETWEEN $${values.length + 1} AND $${values.length + 2}`);
       values.push(startDate, endDate);
@@ -361,13 +461,18 @@ router.get("/report", authenticateToken, async (req, res) => {
       values.push(billable === "true");
     }
 
+    // 4. Apply WHERE conditions
     if (conditions.length > 0) {
-      query += ` AND ${conditions.join(" AND ")}`;
+      query += ` WHERE ${conditions.join(" AND ")}`;
     }
 
     query += ` ORDER BY t.period_start_date DESC`;
 
+    // 5. Run query
     const result = await db.query(query, values);
+
+    console.log("✅ Report rows fetched:", result.rows.length);
+
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Error fetching report data:", err);
@@ -459,9 +564,18 @@ router.get("/hours-report", authenticateToken, async (req, res) => {
 // make sure this is at the top if not already
 
 router.get("/daily-report", authenticateToken, async (req, res) => {
+  const empId = req.user?.emp_id;
   const { startDate, endDate, clients, projects, employees, billable } = req.query;
 
   try {
+    // 1) Get role
+    const roleQuery = await db.query(
+      "SELECT admin_level FROM public.kash_operations_user_table WHERE emp_id = $1",
+      [empId]
+    );
+    const adminLevel = roleQuery.rows[0]?.admin_level || "Basic";
+
+    // 2) Base query
     let query = `
       SELECT 
         t.emp_id,
@@ -477,66 +591,86 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
         t.sub_assignment_segment_1 AS task_area,
         t.sub_assignment_segment_2 AS notes,
         t.billable
-      FROM kash_operations_timesheet_table t
-      JOIN kash_operations_user_table u ON t.emp_id = u.emp_id
-      JOIN kash_operations_created_projects_table p ON t.sow_id = p.sow_id
-      JOIN kash_operations_company_table c ON p.company_id = c.company_id
-      WHERE 1=1
+      FROM public.kash_operations_timesheet_table t
+      JOIN public.kash_operations_user_table u ON t.emp_id = u.emp_id
+      JOIN public.kash_operations_created_projects_table p ON t.sow_id = p.sow_id
+      JOIN public.kash_operations_company_table c ON p.company_id = c.company_id
     `;
 
     const conditions = [];
     const values = [];
 
+    // 3) Role-based restriction
+    if (adminLevel === "Admin") {
+      query += `
+        JOIN public.kash_operations_company_admin_role_table a
+          ON a.company_id = c.company_id
+      `;
+      conditions.push(`a.emp_id = $${values.length + 1}`);
+      values.push(empId);
+    } else if (adminLevel === "Basic") {
+      // return [] since Basic should see nothing
+      return res.json([]);
+    }
+    // Super Admin: no extra restriction
+
+    // 4) Date window (expand ±6 days as you had)
     if (startDate && endDate) {
       const start = new Date(startDate);
       const end = new Date(endDate);
+      const adjustedStart = new Date(start); adjustedStart.setDate(start.getDate() - 6);
+      const adjustedEnd = new Date(end); adjustedEnd.setDate(end.getDate() + 6);
 
-      const adjustedStart = new Date(start);
-      adjustedStart.setDate(start.getDate() - 6);
+      const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
+      const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-      const adjustedEnd = new Date(end);
-      adjustedEnd.setDate(end.getDate() + 6);
-
-      const formattedStart = format(adjustedStart, "yyyy-MM-dd");
-      const formattedEnd = format(adjustedEnd, "yyyy-MM-dd");
+      const formattedStart = fmt(adjustedStart);
+      const formattedEnd = fmt(adjustedEnd);
 
       conditions.push(`t.period_start_date BETWEEN $${values.length + 1} AND $${values.length + 2}`);
       values.push(formattedStart, formattedEnd);
     }
 
+    // 5) Other filters
     if (clients) {
-      const clientArray = clients.split(",");
-      conditions.push(`c.company_name = ANY($${values.length + 1})`);
-      values.push(clientArray);
+      const clientArray = clients.split(",").map(s => s.trim()).filter(Boolean);
+      if (clientArray.length) {
+        conditions.push(`c.company_name = ANY($${values.length + 1})`);
+        values.push(clientArray);
+      }
     }
 
     if (projects) {
-      const projectArray = projects.split(",");
-      conditions.push(`p.project_category = ANY($${values.length + 1})`);
-      values.push(projectArray);
+      const projectArray = projects.split(",").map(s => s.trim()).filter(Boolean);
+      if (projectArray.length) {
+        conditions.push(`p.project_category = ANY($${values.length + 1})`);
+        values.push(projectArray);
+      }
     }
 
     if (employees) {
-      const empArray = employees.split(",");
-      conditions.push(`u.first_name || ' ' || u.last_name = ANY($${values.length + 1})`);
-      values.push(empArray);
+      const empArray = employees.split(",").map(s => s.trim()).filter(Boolean);
+      if (empArray.length) {
+        conditions.push(`(u.first_name || ' ' || u.last_name) = ANY($${values.length + 1})`);
+        values.push(empArray);
+      }
     }
 
     if (billable !== undefined) {
+      const isBillable = `${billable}`.trim().toLowerCase() === "true";
       conditions.push(`t.billable = $${values.length + 1}`);
-      values.push(billable === "true");
+      values.push(isBillable);
     }
 
-    if (conditions.length > 0) {
-      query += ` AND ${conditions.join(" AND ")}`;
-    }
-
+    // 6) WHERE + ORDER
+    if (conditions.length > 0) query += ` WHERE ${conditions.join(" AND ")}`;
     query += ` ORDER BY t.period_start_date DESC`;
 
+    // 7) Execute
     const result = await db.query(query, values);
     res.json(result.rows);
   } catch (err) {
-    console.error("❌ Error fetching report data:", err);
+    console.error("❌ Error fetching daily report data:", err);
     res.status(500).json({ error: "Failed to fetch report data" });
   }
 });

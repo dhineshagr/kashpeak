@@ -5,8 +5,10 @@ import { authenticateToken } from "./auth.js";
 
 const router = express.Router();
 
-router.get("/client-projects", authenticateToken, async (req, res) => {
-  const empId = req.user.emp_id;
+router.get("/client-projects", authenticateToken, async (req, res) => { // Called by dashboard to get all clients with projects
+  
+  const empId = req.user.emp_id; // Good
+  console.log("[DEBUG] Dashboard access to get client projects by emp_id:", empId);
 
   try {
     // 1. Get user role
@@ -14,6 +16,7 @@ router.get("/client-projects", authenticateToken, async (req, res) => {
       "SELECT admin_level FROM kash_operations_user_table WHERE emp_id = $1",
       [empId]
     );
+
     const adminLevel = roleQuery.rows[0]?.admin_level || "Basic";
 
     let result;
@@ -44,7 +47,7 @@ router.get("/client-projects", authenticateToken, async (req, res) => {
         `
       );
     }
-    // 3. Admin → Projects mapped in company_admin_role_table
+    // 3. Admin → Projects mapped in company_admin_role_table // SQL query that's way too wild
     else if (adminLevel === "Admin") {
       result = await db.query(
         `
