@@ -8,7 +8,7 @@ const router = express.Router();
 router.get("/client-projects", authenticateToken, async (req, res) => { // Called by dashboard to get all clients with projects
   
   const empId = req.user.emp_id; // Good
-  console.log("Dashboard access to get client projects by emp_id:", empId);
+  console.log("[DEBUG] Dashboard access to get client projects by emp_id:", empId);
 
   try {
     // 1. Get user role

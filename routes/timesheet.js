@@ -81,6 +81,8 @@ router.post("/add-batch", authenticateToken, async (req, res) => {
       );
     }
 
+    console.log("✅ Batch insert completed for entries:", entries.length);
+
     res.status(200).json({ message: "✅ Timesheet batch saved. Duplicates skipped." });
   } catch (err) {
     console.error("❌ Insert error:", err);
@@ -92,8 +94,8 @@ router.post("/add-batch", authenticateToken, async (req, res) => {
 router.put("/update-entry", authenticateToken, async (req, res) => {
   const { entries } = req.body;
 
+
   console.log("➡️ Received entries to update:", JSON.stringify(entries) || 0, "of length", entries?.length || 0);
-  console.log("Received entries full data:", JSON.stringify(entries));
 
   if (!Array.isArray(entries) || entries.length === 0) {
     return res.status(400).json({ message: "No entries to update" });
@@ -172,7 +174,10 @@ router.put("/update-entry", authenticateToken, async (req, res) => {
     });
     
     console.log(`✅ Updated entries: ${updated.length}`, updated);
-    console.warn(`⚠️ Failed to update entries: ${failed.length}`, failed);
+
+    if (failed.length > 0) {
+      console.warn(`⚠️ Failed to update entries: ${failed.length}`, failed);
+    }
 
     return res.status(200).json({ message: "Timesheet entries updated successfully" });
     

@@ -57,7 +57,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-
 export default router;
 
 // ✅ AUTH MIDDLEWARE as named export
