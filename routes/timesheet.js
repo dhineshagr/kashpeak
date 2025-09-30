@@ -103,7 +103,7 @@ router.put("/update-entry", authenticateToken, async (req, res) => {
   const { entries } = req.body;
 
 
-  console.log("➡️ Received entries to update:", JSON.stringify(entries) || 0, "of length", entries?.length || 0);
+  console.log("\n➡️ Received entries to update:", JSON.stringify(entries) || 0, "of length", entries?.length || 0);
 
   if (!Array.isArray(entries) || entries.length === 0) {
     return res.status(400).json({ message: "No entries to update" });
@@ -543,7 +543,7 @@ router.get("/week/:empId/:weekStartDate", authenticateToken, async (req, res) =>
       [empId, weekStartDate]
     );
 
-    console.log(`✅ Fetched ${result.rows.length} timesheet entries for empId=${empId}, weekStartDate=${weekStartDate}`);
+    console.log(`\n✅ Fetched ${result.rows.length} timesheet entries for empId=${empId}, weekStartDate=${weekStartDate}`);
     console.log("Entries fetched:", JSON.stringify(result.rows));
 
 
