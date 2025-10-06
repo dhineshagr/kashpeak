@@ -12,7 +12,7 @@ const parseNumber = (val) => {
 };
 
 // ✅ Insert new entries only if they don’t exist
-router.post("/add-batch", authenticateToken, async (req, res) => {
+router.post("/add-batch", authenticateToken, async (req, res) => { // Change this so that for non-billable timesheet entries, we default sow_id to NULL 
   const { entries } = req.body;
 
   console.log(
@@ -31,7 +31,7 @@ router.post("/add-batch", authenticateToken, async (req, res) => {
     for (const entry of entries) {
       const { emp_id, sow_id, period_start_date } = entry;
 
-      if (!emp_id || !sow_id || !period_start_date) {
+      if (!emp_id || !period_start_date) {
         console.warn("⛔ Skipping invalid entry:", entry);
         continue;
       }
@@ -51,10 +51,16 @@ router.post("/add-batch", authenticateToken, async (req, res) => {
       }
       */
 
-      // 🔁 Insert if new
+      // 🔁 Insert if new, if no sow_id skip this and just insert the record, this means there's a non-billable reason. If there is a sow_id that means its a client-time non-billable item.
       await db.query(
         `INSERT INTO kash_operations_timesheet_table (
-          emp_id, sow_id, period_start_date, billable, non_billable_reason, ticket_num,
+          emp_id,
+          sow_id, 
+          period_start_date, 
+          billable, 
+          non_billable_reason, 
+          non_billable_reason_uuid,
+          ticket_num,
           monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours,
           saturday_hours, sunday_hours, sub_assignment,
           sub_assignment_segment_1, sub_assignment_segment_2, timesheet_status_entry
@@ -62,7 +68,7 @@ router.post("/add-batch", authenticateToken, async (req, res) => {
           $1, $2, $3, $4, $5, $6,
           $7, $8, $9, $10, $11,
           $12, $13, $14,
-          $15, $16, $17
+          $15, $16, $17, $18
         )`,
         [
           emp_id,
@@ -70,6 +76,7 @@ router.post("/add-batch", authenticateToken, async (req, res) => {
           period_start_date,
           entry.billable,
           entry.non_billable_reason,
+          entry.non_billable_reason_uuid,
           entry.ticket_num,
           parseNumber(entry.monday_hours),
           parseNumber(entry.tuesday_hours),
@@ -87,6 +94,7 @@ router.post("/add-batch", authenticateToken, async (req, res) => {
     }
 
     console.log("✅ Batch insert completed for entries:", entries.length);
+    console.log("Entries data:", JSON.stringify(entries));
 
     res
       .status(200)
@@ -341,10 +349,11 @@ router.get("/areas/:sowId", async (req, res) => {
 
   try {
     const result = await db.query(
-      `SELECT DISTINCT sub_task_title, segment_1 
-       FROM kash_operations_project_sub_category_table 
-       WHERE sow_id = $1`,
-      [sowId]
+      `
+      SELECT uuid, non_billable_reason
+      FROM public.kash_operations_non_billable_reasons
+      ORDER BY non_billable_reason
+      `
     );
 
     const workAreas = [
@@ -423,10 +432,12 @@ router.get(
 );
 
 // ✅ Get Timesheet Report by Week with Filters
-router.get("/report", authenticateToken, async (req, res) => {
+router.get("/weekly-report", authenticateToken, async (req, res) => { // Used by Weekly Report
   const empId = req.user?.emp_id;
   const { startDate, endDate, clients, projects, employees, billable } =
     req.query;
+
+  // console.log("Received weekly report params:", { startDate, endDate, clients, projects, employees, billable });
 
   try {
     // 1. Get user role
@@ -435,6 +446,8 @@ router.get("/report", authenticateToken, async (req, res) => {
       [empId]
     );
     const adminLevel = roleQuery.rows[0]?.admin_level || "Basic";
+
+    // if the record from the timesheet_table has no sow_id, that means its a non-billable entry. Entries can non-billable and have an sow_id if its a client-time non-billable entry
 
     let query = `
       SELECT 
@@ -518,7 +531,8 @@ router.get("/report", authenticateToken, async (req, res) => {
     // 5. Run query
     const result = await db.query(query, values);
 
-    console.log("✅ Report rows fetched:", result.rows.length);
+    // console.log("\n✅ Weekly Report rows fetched:", result.rows.length);
+    // console.log("Rows fetched:", JSON.stringify(result.rows));
 
     res.json(result.rows);
   } catch (err) {
@@ -617,6 +631,8 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
   const { startDate, endDate, clients, projects, employees, billable } =
     req.query;
 
+  // console.log("Received daily report params:", { startDate, endDate, clients, projects, employees, billable });
+
   try {
     // 1) Get role
     const roleQuery = await db.query(
@@ -711,6 +727,7 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
       }
     }
 
+
     if (employees) {
       const empArray = employees
         .split(",")
@@ -736,12 +753,226 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
 
     // 7) Execute
     const result = await db.query(query, values);
+
+    // console.log("\n✅ Daily Report rows fetched:", result.rows.length);
+    // console.log("Rows fetched:", JSON.stringify(result.rows));
+
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Error fetching daily report data:", err);
     res.status(500).json({ error: "Failed to fetch report data" });
   }
 });
+
+// ✅ Get Timesheet by Week and EmpId
+router.get("/week/:empId/:weekStartDate", authenticateToken, async (req, res) => {
+  let { empId, weekStartDate } = req.params;
+
+  empId = parseInt(empId);
+  if (isNaN(empId)) {
+    return res.status(400).json({ error: "Invalid employee ID. Must be a number." });
+  }
+
+  try {
+    const result = await db.query(
+      `SELECT 
+         t.*, 
+         p.project_category, 
+         p.company_id,   
+         c.company_name 
+       FROM kash_operations_timesheet_table t
+       LEFT JOIN kash_operations_created_projects_table p ON t.sow_id = p.sow_id
+       LEFT JOIN kash_operations_company_table c ON p.company_id = c.company_id
+       WHERE t.emp_id = $1 AND t.period_start_date = $2`,
+      [empId, weekStartDate]
+    );
+
+    console.log(`\n✅ Fetched ${result.rows.length} timesheet entries for empId=${empId}, weekStartDate=${weekStartDate}`);
+    console.log("Entries fetched:", JSON.stringify(result.rows));
+
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching timesheet by week:", err);
+    res.status(500).json({ error: "Failed to load timesheet" });
+  }
+});
+
+// GET TIMSHEET DATA ENDS HERE
+
+
+
+
+
+// I have no idea what the below routes are doing here, but leaving them for now
+
+// ✅ Get Projects by Company
+router.get("/projects/:companyId", authenticateToken, async (req, res) => {
+  const { companyId } = req.params;
+
+  try {
+    const result = await db.query(
+      `SELECT sow_id, project_category, current_status
+       FROM kash_operations_created_projects_table
+       WHERE company_id = $1`,
+      [companyId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching projects:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Get Work/Task Area from Timesheet by sow_id
+router.get("/project-details/:sowId", authenticateToken, async (req, res) => {
+  const { sowId } = req.params;
+
+  try {
+    const result = await db.query(
+      `SELECT DISTINCT sub_assignment AS work_area, sub_assignment_segment_1 AS task_area
+       FROM kash_operations_timesheet_table
+       WHERE sow_id = $1 AND sub_assignment IS NOT NULL`,
+      [sowId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching work/task area:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Get Work and Task Areas from Project Sub Category Table
+router.get("/areas/:sowId", async (req, res) => {
+  const { sowId } = req.params;
+
+  try {
+    const result = await db.query(
+      `SELECT DISTINCT sub_task_title, segment_1 
+       FROM kash_operations_project_sub_category_table 
+       WHERE sow_id = $1`,
+      [sowId]
+    );
+
+    const workAreas = [...new Set(result.rows.map((r) => r.sub_task_title).filter(Boolean))];
+    const taskAreas = [...new Set(result.rows.map((r) => r.segment_1).filter(Boolean))];
+
+    res.json({ workAreas, taskAreas });
+  } catch (err) {
+    console.error("Error fetching areas:", err);
+    res.status(500).json({ error: "Failed to fetch work/task areas" });
+  }
+});
+
+// ✅ Get Task Areas by sowId and workArea
+router.get("/task-areas/:sowId/:workArea", async (req, res) => {
+  const { sowId, workArea } = req.params;
+
+  try {
+    const result = await db.query(
+      `SELECT DISTINCT segment_1 
+       FROM kash_operations_project_sub_category_table 
+       WHERE sow_id = $1 AND sub_task_title = $2 
+         AND segment_1 IS NOT NULL AND segment_1 <> ''`,
+      [sowId, workArea]
+    );
+
+    const taskAreas = result.rows.map((r) => r.segment_1);
+    res.json({ taskAreas });
+  } catch (err) {
+    console.error("❌ Error fetching task areas:", err);
+    res.status(500).json({ error: "Failed to fetch task areas" });
+  }
+});
+
+
+
+
+
+
+// GET /api/timesheet/hours-report
+router.get("/hours-report", authenticateToken, async (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  console.log("➡️ Received Start Date:", startDate);
+  console.log("➡️ Received End Date:", endDate);
+
+  try {
+    let dateFilter = '';
+    const values = [];
+
+    if (startDate && endDate) {
+      dateFilter = `WHERE entry_date BETWEEN $1 AND $2`;
+      values.push(startDate, endDate);
+    }
+
+    const result = await db.query(`
+      SELECT 
+        u.first_name || ' ' || u.last_name AS employee_name,
+        c.company_name,
+        p.project_category AS project_name,
+        '' AS project_type,
+        t.sub_assignment AS work_area,
+        t.sub_assignment_segment_1 AS task_area,
+        t.ticket_num,
+        SUM(t.task_hours) AS total_hours
+      FROM (
+        WITH day_offsets AS (
+          SELECT 'Monday' AS day, 0 AS offset
+          UNION ALL SELECT 'Tuesday', 1
+          UNION ALL SELECT 'Wednesday', 2
+          UNION ALL SELECT 'Thursday', 3
+          UNION ALL SELECT 'Friday', 4
+          UNION ALL SELECT 'Saturday', 5
+          UNION ALL SELECT 'Sunday', 6
+        ), transformed AS (
+          SELECT 
+            odt.emp_id,
+            odt.sow_id,
+            odt.ticket_num,
+            (odt.period_start_date + INTERVAL '1 day' * day_offsets.offset)::date AS entry_date,
+            odt.sub_assignment,
+            odt.sub_assignment_segment_1,
+            CASE
+              WHEN day_offsets.day = 'Monday' THEN odt.monday_hours
+              WHEN day_offsets.day = 'Tuesday' THEN odt.tuesday_hours
+              WHEN day_offsets.day = 'Wednesday' THEN odt.wednesday_hours
+              WHEN day_offsets.day = 'Thursday' THEN odt.thursday_hours
+              WHEN day_offsets.day = 'Friday' THEN odt.friday_hours
+              WHEN day_offsets.day = 'Saturday' THEN odt.saturday_hours
+              WHEN day_offsets.day = 'Sunday' THEN odt.sunday_hours
+              ELSE NULL
+            END AS task_hours
+          FROM kash_operations_timesheet_table odt
+          CROSS JOIN day_offsets
+        )
+        SELECT * FROM transformed
+      ) t
+      JOIN kash_operations_user_table u ON u.emp_id = t.emp_id
+      JOIN kash_operations_created_projects_table p ON p.sow_id = t.sow_id
+      JOIN kash_operations_company_table c ON c.company_id = p.company_id
+      ${dateFilter}
+      GROUP BY 
+        u.first_name, u.last_name, 
+        c.company_name, 
+        p.project_category, 
+        t.sub_assignment, t.sub_assignment_segment_1, 
+        t.ticket_num
+      ORDER BY employee_name
+    `, values);
+
+    console.log("✅ Rows fetched from DB:", result.rows.length);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("❌ Error fetching Hours Report", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// make sure this is at the top if not already
 
 // backend/routes/timesheet.js
 
