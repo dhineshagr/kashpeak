@@ -15,7 +15,12 @@ const parseNumber = (val) => {
 router.post("/add-batch", authenticateToken, async (req, res) => { // Change this so that for non-billable timesheet entries, we default sow_id to NULL 
   const { entries } = req.body;
 
-  console.log("➡️ Received entries to add:", entries?.length || 0, "of length", entries?.length || 0);
+  console.log(
+    "➡️ Received entries to add:",
+    entries?.length || 0,
+    "of length",
+    entries?.length || 0
+  );
   console.log("Received entries full data:", JSON.stringify(entries));
 
   if (!Array.isArray(entries) || entries.length === 0) {
@@ -91,7 +96,9 @@ router.post("/add-batch", authenticateToken, async (req, res) => { // Change thi
     console.log("✅ Batch insert completed for entries:", entries.length);
     console.log("Entries data:", JSON.stringify(entries));
 
-    res.status(200).json({ message: "✅ Timesheet batch saved. Duplicates skipped." });
+    res
+      .status(200)
+      .json({ message: "✅ Timesheet batch saved. Duplicates skipped." });
   } catch (err) {
     console.error("❌ Insert error:", err);
     res.status(500).json({ message: "Server error" });
@@ -102,8 +109,12 @@ router.post("/add-batch", authenticateToken, async (req, res) => { // Change thi
 router.put("/update-entry", authenticateToken, async (req, res) => {
   const { entries } = req.body;
 
-
-  console.log("\n➡️ Received entries to update:", JSON.stringify(entries) || 0, "of length", entries?.length || 0);
+  console.log(
+    "➡️ Received entries to update:",
+    JSON.stringify(entries) || 0,
+    "of length",
+    entries?.length || 0
+  );
 
   if (!Array.isArray(entries) || entries.length === 0) {
     return res.status(400).json({ message: "No entries to update" });
@@ -113,7 +124,6 @@ router.put("/update-entry", authenticateToken, async (req, res) => {
     // Do not short-circuit on one failure—collect per-row outcome
     const results = await Promise.allSettled(
       entries.map((entry) => {
-        
         if (!entry.timesheet_entry_id) {
           throw new Error("Missing timesheet_entry_id on update entry");
         }
@@ -180,15 +190,16 @@ router.put("/update-entry", authenticateToken, async (req, res) => {
         failed.push({ id, reason: r.reason?.message || String(r.reason) });
       }
     });
-    
+
     console.log(`✅ Updated entries: ${updated.length}`, updated);
 
     if (failed.length > 0) {
       console.warn(`⚠️ Failed to update entries: ${failed.length}`, failed);
     }
 
-    return res.status(200).json({ message: "Timesheet entries updated successfully" });
-    
+    return res
+      .status(200)
+      .json({ message: "Timesheet entries updated successfully" });
   } catch (err) {
     console.error("Update error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -196,46 +207,47 @@ router.put("/update-entry", authenticateToken, async (req, res) => {
 });
 
 // ✅ Delete Timesheet Entry by ID
-router.delete("/delete-entry-by-id/:entryId", authenticateToken, async (req, res) => {
-  const { entryId } = req.params;
+router.delete(
+  "/delete-entry-by-id/:entryId",
+  authenticateToken,
+  async (req, res) => {
+    const { entryId } = req.params;
 
-  console.log("➡️ Deleting entryId:", entryId);
+    console.log("➡️ Deleting entryId:", entryId);
 
-  try {
-    const result = await db.query(
-      `DELETE FROM kash_operations_timesheet_table WHERE timesheet_entry_id = $1`,
-      [entryId]
-    );
+    try {
+      const result = await db.query(
+        `DELETE FROM kash_operations_timesheet_table WHERE timesheet_entry_id = $1`,
+        [entryId]
+      );
 
-    if (result.rowCount === 0) {
-      console.warn(`⚠️ Nothing deleted. No match for timesheet_entry_id=${entryId}`);
-      return res.status(404).json({ message: "Entry not found" });
+      if (result.rowCount === 0) {
+        console.warn(
+          `⚠️ Nothing deleted. No match for timesheet_entry_id=${entryId}`
+        );
+        return res.status(404).json({ message: "Entry not found" });
+      }
+
+      console.log(`🗑️ Deleted entryId=${entryId}`);
+      res.status(200).json({ message: "Entry deleted successfully" });
+    } catch (err) {
+      console.error("❌ Delete by ID error:", err);
+      res.status(500).json({ message: "Failed to delete entry" });
     }
-
-    console.log(`🗑️ Deleted entryId=${entryId}`);
-    res.status(200).json({ message: "Entry deleted successfully" });
-  } catch (err) {
-    console.error("❌ Delete by ID error:", err);
-    res.status(500).json({ message: "Failed to delete entry" });
   }
-});
+);
 
-
-// ✅ Get Companies by Billable Status
-router.get("/companies", authenticateToken, async (req, res) => { // Returns based on billable, if non-billable, returns NB1001 only
+// ✅ Get Companies by Billable Status with Basic mapping
+router.get("/companies", authenticateToken, async (req, res) => {
   const empId = req.user?.emp_id;
-  // console.log("Getting companies for emp_id:", empId);
-
   const { billable } = req.query;
 
   if (billable === undefined) {
     return res.status(400).json({ error: "Missing billable query param" });
   }
-
   const isBillable = billable === "true";
 
   try {
-    // Get user role (still useful for Basic check)
     const roleQuery = await db.query(
       "SELECT admin_level FROM kash_operations_user_table WHERE emp_id = $1",
       [empId]
@@ -245,7 +257,7 @@ router.get("/companies", authenticateToken, async (req, res) => { // Returns bas
     let result;
 
     if (adminLevel === "Super Admin" || adminLevel === "Admin") {
-      // ✅ Both see all companies
+      // Admins → all companies (filtered by billable)
       result = await db.query(
         `
         SELECT company_id, company_name
@@ -256,16 +268,35 @@ router.get("/companies", authenticateToken, async (req, res) => { // Returns bas
         [isBillable]
       );
     } else {
-      // Basic (or any other role) → no companies
-      result = { rows: [] };
-    }
+      // Basic → companies mapped to the user; fallback to legacy if none
+      const mapped = await db.query(
+        `
+        SELECT c.company_id, c.company_name
+        FROM public.kash_operations_company_table c
+        JOIN public.kash_operations_company_admin_role_table a
+          ON a.company_id = c.company_id
+        WHERE a.emp_id = $1
+          AND COALESCE(c.is_billable, false) = $2
+        ORDER BY c.company_name
+        `,
+        [empId, isBillable]
+      );
 
-    /*
-    console.log(
-      `Companies fetched (role=${adminLevel}, billable=${isBillable}):`,
-      JSON.stringify(result.rows)
-    );
-    */
+      if (mapped.rows.length > 0) {
+        result = mapped;
+      } else {
+        // Fallback so Basic users aren’t blocked if no mapping exists yet
+        result = await db.query(
+          `
+          SELECT company_id, company_name
+          FROM public.kash_operations_company_table
+          WHERE COALESCE(is_billable, false) = $1
+          ORDER BY company_name
+          `,
+          [isBillable]
+        );
+      }
+    }
 
     res.json(result.rows);
   } catch (err) {
@@ -274,8 +305,48 @@ router.get("/companies", authenticateToken, async (req, res) => { // Returns bas
   }
 });
 
-// ✅ Get Non-Billable Reasons
-router.get("/non-billable-reasons", authenticateToken, async (req, res) => {
+// ✅ Get Projects by Company
+router.get("/projects/:companyId", authenticateToken, async (req, res) => {
+  const { companyId } = req.params;
+
+  try {
+    const result = await db.query(
+      `SELECT sow_id, project_category, current_status
+       FROM kash_operations_created_projects_table
+       WHERE company_id = $1`,
+      [companyId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching projects:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Get Work/Task Area from Timesheet by sow_id
+router.get("/project-details/:sowId", authenticateToken, async (req, res) => {
+  const { sowId } = req.params;
+
+  try {
+    const result = await db.query(
+      `SELECT DISTINCT sub_assignment AS work_area, sub_assignment_segment_1 AS task_area
+       FROM kash_operations_timesheet_table
+       WHERE sow_id = $1 AND sub_assignment IS NOT NULL`,
+      [sowId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching work/task area:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Get Work and Task Areas from Project Sub Category Table
+router.get("/areas/:sowId", async (req, res) => {
+  const { sowId } = req.params;
+
   try {
     const result = await db.query(
       `
@@ -285,19 +356,86 @@ router.get("/non-billable-reasons", authenticateToken, async (req, res) => {
       `
     );
 
-    res.json(result.rows);
+    const workAreas = [
+      ...new Set(result.rows.map((r) => r.sub_task_title).filter(Boolean)),
+    ];
+    const taskAreas = [
+      ...new Set(result.rows.map((r) => r.segment_1).filter(Boolean)),
+    ];
+
+    res.json({ workAreas, taskAreas });
   } catch (err) {
-    console.error("❌ Error fetching non-billable reasons:", err);
-    res.status(500).json({ error: "Server error" });
+    console.error("Error fetching areas:", err);
+    res.status(500).json({ error: "Failed to fetch work/task areas" });
   }
 });
 
-// GET TIMSHEET DATA STARTS HERE
+// ✅ Get Task Areas by sowId and workArea
+router.get("/task-areas/:sowId/:workArea", async (req, res) => {
+  const { sowId, workArea } = req.params;
+
+  try {
+    const result = await db.query(
+      `SELECT DISTINCT segment_1 
+       FROM kash_operations_project_sub_category_table 
+       WHERE sow_id = $1 AND sub_task_title = $2 
+         AND segment_1 IS NOT NULL AND segment_1 <> ''`,
+      [sowId, workArea]
+    );
+
+    const taskAreas = result.rows.map((r) => r.segment_1);
+    res.json({ taskAreas });
+  } catch (err) {
+    console.error("❌ Error fetching task areas:", err);
+    res.status(500).json({ error: "Failed to fetch task areas" });
+  }
+});
+
+// ✅ Get Timesheet by Week and EmpId
+router.get(
+  "/week/:empId/:weekStartDate",
+  authenticateToken,
+  async (req, res) => {
+    let { empId, weekStartDate } = req.params;
+
+    empId = parseInt(empId);
+    if (isNaN(empId)) {
+      return res
+        .status(400)
+        .json({ error: "Invalid employee ID. Must be a number." });
+    }
+
+    try {
+      const result = await db.query(
+        `SELECT 
+         t.*, 
+         p.project_category, 
+         p.company_id,   
+         c.company_name 
+       FROM kash_operations_timesheet_table t
+       LEFT JOIN kash_operations_created_projects_table p ON t.sow_id = p.sow_id
+       LEFT JOIN kash_operations_company_table c ON p.company_id = c.company_id
+       WHERE t.emp_id = $1 AND t.period_start_date = $2`,
+        [empId, weekStartDate]
+      );
+
+      console.log(
+        `✅ Fetched ${result.rows.length} timesheet entries for empId=${empId}, weekStartDate=${weekStartDate}`
+      );
+
+      res.json(result.rows);
+    } catch (err) {
+      console.error("Error fetching timesheet by week:", err);
+      res.status(500).json({ error: "Failed to load timesheet" });
+    }
+  }
+);
 
 // ✅ Get Timesheet Report by Week with Filters
 router.get("/weekly-report", authenticateToken, async (req, res) => { // Used by Weekly Report
   const empId = req.user?.emp_id;
-  const { startDate, endDate, clients, projects, employees, billable } = req.query;
+  const { startDate, endDate, clients, projects, employees, billable } =
+    req.query;
 
   // console.log("Received weekly report params:", { startDate, endDate, clients, projects, employees, billable });
 
@@ -350,7 +488,11 @@ router.get("/weekly-report", authenticateToken, async (req, res) => { // Used by
 
     // 3. Dynamic filters
     if (startDate && endDate) {
-      conditions.push(`t.period_start_date BETWEEN $${values.length + 1} AND $${values.length + 2}`);
+      conditions.push(
+        `t.period_start_date BETWEEN $${values.length + 1} AND $${
+          values.length + 2
+        }`
+      );
       values.push(startDate, endDate);
     }
 
@@ -368,7 +510,9 @@ router.get("/weekly-report", authenticateToken, async (req, res) => { // Used by
 
     if (employees) {
       const empArray = employees.split(",");
-      conditions.push(`u.first_name || ' ' || u.last_name = ANY($${values.length + 1})`);
+      conditions.push(
+        `u.first_name || ' ' || u.last_name = ANY($${values.length + 1})`
+      );
       values.push(empArray);
     }
 
@@ -397,10 +541,95 @@ router.get("/weekly-report", authenticateToken, async (req, res) => { // Used by
   }
 });
 
-// ✅ Get Timesheet Report by Daily with Filters
+// GET /api/timesheet/hours-report
+router.get("/hours-report", authenticateToken, async (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  console.log("➡️ Received Start Date:", startDate);
+  console.log("➡️ Received End Date:", endDate);
+
+  try {
+    let dateFilter = "";
+    const values = [];
+
+    if (startDate && endDate) {
+      dateFilter = `WHERE entry_date BETWEEN $1 AND $2`;
+      values.push(startDate, endDate);
+    }
+
+    const result = await db.query(
+      `
+      SELECT 
+        u.first_name || ' ' || u.last_name AS employee_name,
+        c.company_name,
+        p.project_category AS project_name,
+        '' AS project_type,
+        t.sub_assignment AS work_area,
+        t.sub_assignment_segment_1 AS task_area,
+        t.ticket_num,
+        SUM(t.task_hours) AS total_hours
+      FROM (
+        WITH day_offsets AS (
+          SELECT 'Monday' AS day, 0 AS offset
+          UNION ALL SELECT 'Tuesday', 1
+          UNION ALL SELECT 'Wednesday', 2
+          UNION ALL SELECT 'Thursday', 3
+          UNION ALL SELECT 'Friday', 4
+          UNION ALL SELECT 'Saturday', 5
+          UNION ALL SELECT 'Sunday', 6
+        ), transformed AS (
+          SELECT 
+            odt.emp_id,
+            odt.sow_id,
+            odt.ticket_num,
+            (odt.period_start_date + INTERVAL '1 day' * day_offsets.offset)::date AS entry_date,
+            odt.sub_assignment,
+            odt.sub_assignment_segment_1,
+            CASE
+              WHEN day_offsets.day = 'Monday' THEN odt.monday_hours
+              WHEN day_offsets.day = 'Tuesday' THEN odt.tuesday_hours
+              WHEN day_offsets.day = 'Wednesday' THEN odt.wednesday_hours
+              WHEN day_offsets.day = 'Thursday' THEN odt.thursday_hours
+              WHEN day_offsets.day = 'Friday' THEN odt.friday_hours
+              WHEN day_offsets.day = 'Saturday' THEN odt.saturday_hours
+              WHEN day_offsets.day = 'Sunday' THEN odt.sunday_hours
+              ELSE NULL
+            END AS task_hours
+          FROM kash_operations_timesheet_table odt
+          CROSS JOIN day_offsets
+        )
+        SELECT * FROM transformed
+      ) t
+      JOIN kash_operations_user_table u ON u.emp_id = t.emp_id
+      JOIN kash_operations_created_projects_table p ON p.sow_id = t.sow_id
+      JOIN kash_operations_company_table c ON c.company_id = p.company_id
+      ${dateFilter}
+      GROUP BY 
+        u.first_name, u.last_name, 
+        c.company_name, 
+        p.project_category, 
+        t.sub_assignment, t.sub_assignment_segment_1, 
+        t.ticket_num
+      ORDER BY employee_name
+    `,
+      values
+    );
+
+    console.log("✅ Rows fetched from DB:", result.rows.length);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("❌ Error fetching Hours Report", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// make sure this is at the top if not already
+
 router.get("/daily-report", authenticateToken, async (req, res) => {
   const empId = req.user?.emp_id;
-  const { startDate, endDate, clients, projects, employees, billable } = req.query;
+  const { startDate, endDate, clients, projects, employees, billable } =
+    req.query;
 
   // console.log("Received daily report params:", { startDate, endDate, clients, projects, employees, billable });
 
@@ -455,44 +684,59 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
     if (startDate && endDate) {
       const start = new Date(startDate);
       const end = new Date(endDate);
-      const adjustedStart = new Date(start); adjustedStart.setDate(start.getDate() - 6);
-      const adjustedEnd = new Date(end); adjustedEnd.setDate(end.getDate() + 6);
+      const adjustedStart = new Date(start);
+      adjustedStart.setDate(start.getDate() - 6);
+      const adjustedEnd = new Date(end);
+      adjustedEnd.setDate(end.getDate() + 6);
 
       const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
-      const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const fmt = (d) =>
+        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
       const formattedStart = fmt(adjustedStart);
       const formattedEnd = fmt(adjustedEnd);
 
-      conditions.push(`t.period_start_date BETWEEN $${values.length + 1} AND $${values.length + 2}`);
+      conditions.push(
+        `t.period_start_date BETWEEN $${values.length + 1} AND $${
+          values.length + 2
+        }`
+      );
       values.push(formattedStart, formattedEnd);
     }
 
     // 5) Other filters
-    // clients
-    const clientArray = clients ? clients.split(",").map(s => s.trim().toLowerCase()).filter(Boolean) : [];
-    if (clientArray.length) {
-      conditions.push(`LOWER(BTRIM(c.company_name)) = ANY($${values.length + 1}::text[])`);
-      values.push(clientArray);
+    if (clients) {
+      const clientArray = clients
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (clientArray.length) {
+        conditions.push(`c.company_name = ANY($${values.length + 1})`);
+        values.push(clientArray);
+      }
     }
 
-    // employees (already LOWER on left in your weekly route — keep consistent)
-
-
-    const projectArray = projects
-      ? projects.split(",").map(s => s.trim().toLowerCase()).filter(Boolean)
-      : [];
-
-    if (projectArray.length) {
-      conditions.push(`LOWER(BTRIM(p.project_category)) = ANY($${values.length + 1}::text[])`);
-      values.push(projectArray);
+    if (projects) {
+      const projectArray = projects
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (projectArray.length) {
+        conditions.push(`p.project_category = ANY($${values.length + 1})`);
+        values.push(projectArray);
+      }
     }
 
 
     if (employees) {
-      const empArray = employees.split(",").map(s => s.trim()).filter(Boolean);
+      const empArray = employees
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
       if (empArray.length) {
-        conditions.push(`(u.first_name || ' ' || u.last_name) = ANY($${values.length + 1})`);
+        conditions.push(
+          `(u.first_name || ' ' || u.last_name) = ANY($${values.length + 1})`
+        );
         values.push(empArray);
       }
     }
@@ -746,7 +990,9 @@ router.get("/daily-hours-report", authenticateToken, async (req, res) => {
     const values = [];
 
     if (startDate && endDate) {
-      conditions.push(`entry_date BETWEEN $${values.length + 1} AND $${values.length + 2}`);
+      conditions.push(
+        `entry_date BETWEEN $${values.length + 1} AND $${values.length + 2}`
+      );
       values.push(startDate, endDate);
     }
 
@@ -754,24 +1000,37 @@ router.get("/daily-hours-report", authenticateToken, async (req, res) => {
       conditions.push(`t.emp_id = $${values.length + 1}`);
       values.push(emp_id);
     } else if (emp_ids) {
-      const ids = emp_ids.split(",").map(id => parseInt(id.trim())).filter(Boolean);
+      const ids = emp_ids
+        .split(",")
+        .map((id) => parseInt(id.trim()))
+        .filter(Boolean);
       if (ids.length > 0) {
-        const placeholders = ids.map((_, i) => `$${values.length + i + 1}`).join(",");
+        const placeholders = ids
+          .map((_, i) => `$${values.length + i + 1}`)
+          .join(",");
         conditions.push(`t.emp_id IN (${placeholders})`);
         values.push(...ids);
       }
     } else if (role === "Admin" || role === "Super Admin") {
-      const result = await db.query(`SELECT emp_id FROM kash_operations_user_table`);
-      const ids = result.rows.map(row => row.emp_id);
+      const result = await db.query(
+        `SELECT emp_id FROM kash_operations_user_table`
+      );
+      const ids = result.rows.map((row) => row.emp_id);
       if (ids.length > 0) {
-        const placeholders = ids.map((_, i) => `$${values.length + i + 1}`).join(",");
+        const placeholders = ids
+          .map((_, i) => `$${values.length + i + 1}`)
+          .join(",");
         conditions.push(`t.emp_id IN (${placeholders})`);
         values.push(...ids);
-        console.log("✅ Loaded all employee IDs for Admin/Super Admin:", ids.length);
+        console.log(
+          "✅ Loaded all employee IDs for Admin/Super Admin:",
+          ids.length
+        );
       }
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const query = `
       SELECT 
@@ -821,7 +1080,5 @@ router.get("/daily-hours-report", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
-
-
 
 export default router;
