@@ -257,7 +257,6 @@ router.delete(
   }
 );
 
-// ✅ Get Companies by Billable Status with Basic mapping
 router.get("/companies", authenticateToken, async (req, res) => {
   const empId = req.user?.emp_id;
   const { billable } = req.query;
@@ -269,7 +268,7 @@ router.get("/companies", authenticateToken, async (req, res) => {
 
   try {
     const roleQuery = await db.query(
-      "SELECT admin_level FROM kash_operations_user_table WHERE emp_id = $1",
+      "SELECT admin_level FROM public.kash_operations_user_table WHERE emp_id = $1",
       [empId]
     );
     const adminLevel = roleQuery.rows[0]?.admin_level || "Basic";
@@ -277,46 +276,38 @@ router.get("/companies", authenticateToken, async (req, res) => {
     let result;
 
     if (adminLevel === "Super Admin" || adminLevel === "Admin") {
-      // Admins → all companies (filtered by billable)
+      // Admins → all companies filtered by billable
       result = await db.query(
         `
-        SELECT company_id, company_name
-        FROM public.kash_operations_company_table
-        WHERE COALESCE(is_billable, false) = $1
-        ORDER BY company_name
+        SELECT c.company_id, c.company_name
+        FROM public.kash_operations_company_table c
+        WHERE COALESCE(c.is_billable, false) = $1
+        ORDER BY c.company_name
         `,
         [isBillable]
       );
     } else {
-      // Basic → companies mapped to the user; fallback to legacy if none
-      const mapped = await db.query(
+      // Basic → only companies with at least one project assigned to this user
+      result = await db.query(
         `
-        SELECT c.company_id, c.company_name
+        SELECT DISTINCT c.company_id, c.company_name
         FROM public.kash_operations_company_table c
-        JOIN public.kash_operations_company_admin_role_table a
-          ON a.company_id = c.company_id
-        WHERE a.emp_id = $1
+        JOIN public.kash_operations_created_projects_table p
+          ON p.company_id = c.company_id
+        JOIN public.kash_operations_project_employee_table pe
+          ON pe.sow_id = p.sow_id
+        WHERE pe.emp_id = $1
           AND COALESCE(c.is_billable, false) = $2
         ORDER BY c.company_name
         `,
         [empId, isBillable]
       );
-
-      if (mapped.rows.length > 0) {
-        result = mapped;
-      } else {
-        // Fallback so Basic users aren’t blocked if no mapping exists yet
-        result = await db.query(
-          `
-          SELECT company_id, company_name
-          FROM public.kash_operations_company_table
-          WHERE COALESCE(is_billable, false) = $1
-          ORDER BY company_name
-          `,
-          [isBillable]
-        );
-      }
     }
+
+    // Helpful debug (remove later)
+    console.log(
+      `👤 emp_id=${empId}, role=${adminLevel}, billable=${isBillable}, returned_companies=${result.rows.length}`
+    );
 
     res.json(result.rows);
   } catch (err) {
@@ -325,21 +316,53 @@ router.get("/companies", authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ Get Projects by Company
+
 router.get("/projects/:companyId", authenticateToken, async (req, res) => {
   const { companyId } = req.params;
+  const empId = req.user?.emp_id;
 
   try {
-    const result = await db.query(
-      `SELECT sow_id, project_category, current_status
-       FROM kash_operations_created_projects_table
-       WHERE company_id = $1`,
-      [companyId]
+    const roleResult = await db.query(
+      "SELECT admin_level FROM public.kash_operations_user_table WHERE emp_id = $1",
+      [empId]
+    );
+    const adminLevel = roleResult.rows[0]?.admin_level || "Basic";
+
+    let result;
+
+    if (adminLevel === "Super Admin" || adminLevel === "Admin") {
+      result = await db.query(
+        `
+        SELECT p.sow_id, p.project_category, p.current_status
+        FROM public.kash_operations_created_projects_table p
+        WHERE p.company_id = $1
+        ORDER BY p.project_category
+        `,
+        [companyId]
+      );
+    } else {
+      result = await db.query(
+        `
+        SELECT DISTINCT p.sow_id, p.project_category, p.current_status
+        FROM public.kash_operations_created_projects_table p
+        JOIN public.kash_operations_project_employee_table pe
+          ON pe.sow_id = p.sow_id
+        WHERE p.company_id = $1
+          AND pe.emp_id = $2
+        ORDER BY p.project_category
+        `,
+        [companyId, empId]
+      );
+    }
+
+    // Helpful debug (remove later)
+    console.log(
+      `👤 emp_id=${empId}, role=${adminLevel}, companyId=${companyId}, returned_projects=${result.rows.length}`
     );
 
     res.json(result.rows);
   } catch (err) {
-    console.error("Error fetching projects:", err);
+    console.error("❌ Error fetching projects:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -451,24 +474,20 @@ router.get(
   }
 );
 
-// ✅ Get Timesheet Report by Week with Filters
-router.get("/weekly-report", authenticateToken, async (req, res) => { // Used by Weekly Report
+// ✅ Get Timesheet Report by Week with Filters (mirrors /daily-report)
+router.get("/weekly-report", authenticateToken, async (req, res) => {
   const empId = req.user?.emp_id;
-  const { startDate, endDate, clients, projects, employees, billable } =
-    req.query;
-
-  // console.log("Received weekly report params:", { startDate, endDate, clients, projects, employees, billable });
+  const { startDate, endDate, employees, billable } = req.query;
 
   try {
-    // 1. Get user role
+    // 1️⃣ Get role
     const roleQuery = await db.query(
-      "SELECT admin_level FROM kash_operations_user_table WHERE emp_id = $1",
+      "SELECT admin_level FROM public.kash_operations_user_table WHERE emp_id = $1",
       [empId]
     );
     const adminLevel = roleQuery.rows[0]?.admin_level || "Basic";
 
-    // if the record from the timesheet_table has no sow_id, that means its a non-billable entry. Entries can non-billable and have an sow_id if its a client-time non-billable entry
-
+    // 2️⃣ Base query
     let query = `
       SELECT 
         t.emp_id,
@@ -477,6 +496,8 @@ router.get("/weekly-report", authenticateToken, async (req, res) => { // Used by
         p.project_category,
         c.company_name,
         t.period_start_date,
+        t.non_billable_reason,
+        t.non_billable_reason_uuid,
         t.monday_hours, t.tuesday_hours, t.wednesday_hours,
         t.thursday_hours, t.friday_hours, t.saturday_hours, t.sunday_hours,
         t.ticket_num,
@@ -484,29 +505,28 @@ router.get("/weekly-report", authenticateToken, async (req, res) => { // Used by
         t.sub_assignment_segment_1 AS task_area,
         t.sub_assignment_segment_2 AS notes,
         t.billable
-      FROM kash_operations_timesheet_table t
-      JOIN kash_operations_user_table u ON t.emp_id = u.emp_id
-      JOIN kash_operations_created_projects_table p ON t.sow_id = p.sow_id
-      JOIN kash_operations_company_table c ON p.company_id = c.company_id
+      FROM public.kash_operations_timesheet_table t
+      JOIN public.kash_operations_user_table u ON t.emp_id = u.emp_id
+      LEFT JOIN public.kash_operations_created_projects_table p ON t.sow_id = p.sow_id
+      LEFT JOIN public.kash_operations_company_table c ON p.company_id = c.company_id
     `;
 
     const conditions = [];
     const values = [];
 
-    // 2. Role-based company restriction
+    // 3️⃣ Role-based restriction
     if (adminLevel === "Admin") {
       query += `
-        JOIN kash_operations_company_admin_role_table a 
-          ON c.company_id = a.company_id
+        JOIN public.kash_operations_company_admin_role_table a
+          ON a.company_id = c.company_id
       `;
       conditions.push(`a.emp_id = $${values.length + 1}`);
       values.push(empId);
     } else if (adminLevel === "Basic") {
-      // Option A: Restrict to no companies
-      return res.json([]);
+      return res.json([]); // basic users see nothing
     }
 
-    // 3. Dynamic filters
+    // 4️⃣ Date range filter
     if (startDate && endDate) {
       conditions.push(
         `t.period_start_date BETWEEN $${values.length + 1} AND $${
@@ -516,50 +536,81 @@ router.get("/weekly-report", authenticateToken, async (req, res) => { // Used by
       values.push(startDate, endDate);
     }
 
-    if (clients) {
-      const clientArray = clients.split(",");
-      conditions.push(`c.company_name = ANY($${values.length + 1})`);
-      values.push(clientArray);
+    // 5️⃣ Multi-client/project filters
+    if (req.query.filters) {
+      let filters;
+      try {
+        filters = JSON.parse(req.query.filters);
+      } catch (e) {
+        console.error("❌ Invalid filters JSON:", req.query.filters);
+        filters = [];
+      }
+
+      if (Array.isArray(filters) && filters.length > 0) {
+        const subConditions = [];
+
+        for (const f of filters) {
+          const cleanClient = f.client?.trim();
+          const cleanProjects = (f.projects || []).map((p) => p.trim());
+
+          if (cleanProjects.length > 0) {
+            subConditions.push(
+              `(TRIM(c.company_name) = $${values.length + 1} AND TRIM(p.project_category) = ANY($${
+                values.length + 2
+              }))`
+            );
+            values.push(cleanClient, cleanProjects);
+          } else {
+            subConditions.push(`(TRIM(c.company_name) = $${values.length + 1})`);
+            values.push(cleanClient);
+          }
+        }
+
+        // 🧠 Important: include non-billables globally (no sow_id)
+        if (subConditions.length > 0) {
+          conditions.push(`((${subConditions.join(" OR ")}) OR t.sow_id IS NULL)`);
+        }
+      }
     }
 
-    if (projects) {
-      const projectArray = projects.split(",");
-      conditions.push(`p.project_category = ANY($${values.length + 1})`);
-      values.push(projectArray);
-    }
-
+    // 6️⃣ Employee name filter
     if (employees) {
-      const empArray = employees.split(",");
-      conditions.push(
-        `u.first_name || ' ' || u.last_name = ANY($${values.length + 1})`
-      );
-      values.push(empArray);
+      const empArray = employees
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (empArray.length) {
+        conditions.push(
+          `(u.first_name || ' ' || u.last_name) = ANY($${values.length + 1})`
+        );
+        values.push(empArray);
+      }
     }
 
+    // 7️⃣ Billable / Non-billable filter
     if (billable !== undefined) {
+      const isBillable = `${billable}`.trim().toLowerCase() === "true";
       conditions.push(`t.billable = $${values.length + 1}`);
-      values.push(billable === "true");
+      values.push(isBillable);
     }
 
-    // 4. Apply WHERE conditions
-    if (conditions.length > 0) {
-      query += ` WHERE ${conditions.join(" AND ")}`;
-    }
-
+    // 8️⃣ WHERE + ORDER
+    if (conditions.length > 0) query += ` WHERE ${conditions.join(" AND ")}`;
     query += ` ORDER BY t.period_start_date DESC`;
 
-    // 5. Run query
+    // 9️⃣ Execute query
     const result = await db.query(query, values);
 
-    // console.log("\n✅ Weekly Report rows fetched:", result.rows.length);
-    // console.log("Rows fetched:", JSON.stringify(result.rows));
+    console.log("query:", query);
+    console.log("values:", values);
 
     res.json(result.rows);
   } catch (err) {
-    console.error("❌ Error fetching report data:", err);
-    res.status(500).json({ error: "Failed to fetch report data" });
+    console.error("❌ Error fetching weekly report:", err);
+    res.status(500).json({ error: "Failed to fetch weekly report" });
   }
 });
+
 
 // GET /api/timesheet/hours-report
 router.get("/hours-report", authenticateToken, async (req, res) => {
@@ -670,6 +721,8 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
         p.project_category,
         c.company_name,
         t.period_start_date,
+        t.non_billable_reason,
+        t.non_billable_reason_uuid,
         t.monday_hours, t.tuesday_hours, t.wednesday_hours,
         t.thursday_hours, t.friday_hours, t.saturday_hours, t.sunday_hours,
         t.ticket_num,
@@ -679,8 +732,8 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
         t.billable
       FROM public.kash_operations_timesheet_table t
       JOIN public.kash_operations_user_table u ON t.emp_id = u.emp_id
-      JOIN public.kash_operations_created_projects_table p ON t.sow_id = p.sow_id
-      JOIN public.kash_operations_company_table c ON p.company_id = c.company_id
+      LEFT JOIN public.kash_operations_created_projects_table p ON t.sow_id = p.sow_id
+      LEFT JOIN public.kash_operations_company_table c ON p.company_id = c.company_id
     `;
 
     const conditions = [];
@@ -724,28 +777,38 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
       values.push(formattedStart, formattedEnd);
     }
 
-    // 5) Other filters
-    if (clients) {
-      const clientArray = clients
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (clientArray.length) {
-        conditions.push(`c.company_name = ANY($${values.length + 1})`);
-        values.push(clientArray);
+    // 5) Other filters (structured filters)
+    if (req.query.filters) {
+      let filters;
+      try {
+        filters = JSON.parse(req.query.filters);
+      } catch (e) {
+        console.error("❌ Invalid filters JSON:", req.query.filters);
+        filters = [];
+      }
+
+      if (Array.isArray(filters) && filters.length > 0) {
+        const subConditions = [];
+
+        for (const f of filters) {
+          if (f.projects && f.projects.length > 0) {
+            subConditions.push(
+              `(c.company_name = $${values.length + 1} AND TRIM(p.project_category) = ANY($${values.length + 2}))`
+            );
+            values.push(f.client, f.projects);
+          } else {
+            subConditions.push(`(c.company_name = $${values.length + 1})`);
+            values.push(f.client);
+          }
+        }
+
+        if (subConditions.length > 0) {
+          conditions.push(`(${subConditions.join(" OR ")})`);
+        }
       }
     }
 
-    if (projects) {
-      const projectArray = projects
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (projectArray.length) {
-        conditions.push(`p.project_category = ANY($${values.length + 1})`);
-        values.push(projectArray);
-      }
-    }
+
 
 
     if (employees) {
@@ -771,8 +834,11 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
     if (conditions.length > 0) query += ` WHERE ${conditions.join(" AND ")}`;
     query += ` ORDER BY t.period_start_date DESC`;
 
+    
     // 7) Execute
     const result = await db.query(query, values);
+    console.log('query: ' + query )
+    console.log('values: ' + values )
 
     // console.log("\n✅ Daily Report rows fetched:", result.rows.length);
     // console.log("Rows fetched:", JSON.stringify(result.rows));
