@@ -4,7 +4,6 @@ import { authenticateToken } from "./auth.js";
 
 const router = express.Router();
 
-
 // GET /api/admins/employees — return only Admin and Super Admin
 router.get("/employees", authenticateToken, async (req, res) => {
     try {

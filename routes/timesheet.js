@@ -12,22 +12,17 @@ const parseNumber = (val) => {
 };
 
 // ✅ Insert new entries only if they don’t exist
-router.post("/add-batch", authenticateToken, async (req, res) => { // Change this so that for non-billable timesheet entries, we default sow_id to NULL 
+router.post("/add-batch", authenticateToken, async (req, res) => {
   const { entries } = req.body;
 
-  console.log(
-    "➡️ Received entries to add:",
-    entries?.length || 0,
-    "of length",
-    entries?.length || 0
-  );
-  console.log("Received entries full data:", JSON.stringify(entries));
-
+  console.log("➡️ Received entries to add:", entries?.length || 0);
   if (!Array.isArray(entries) || entries.length === 0) {
     return res.status(400).json({ message: "No entries provided" });
   }
 
   try {
+    const insertedIds = []; // ✅ store new IDs to send back
+
     for (const entry of entries) {
       const { emp_id, sow_id, period_start_date } = entry;
 
@@ -36,48 +31,45 @@ router.post("/add-batch", authenticateToken, async (req, res) => { // Change thi
         continue;
       }
 
-      /*
-      // 🔁 Check if this combination already exists
-      const existing = await db.query(
-        `SELECT timesheet_entry_id FROM kash_operations_timesheet_table
-         WHERE emp_id = $1 AND sow_id = $2 AND period_start_date = $3`,
-        [emp_id, sow_id, period_start_date]
-      );
-      
-
-      if (existing.rows.length > 0) {
-        console.log(`⚠️ Skipping existing entry for emp ${emp_id}, sow ${sow_id}, week ${period_start_date}`);
-        continue;
-      }
-      */
-
-      // 🔁 Insert if new, if no sow_id skip this and just insert the record, this means there's a non-billable reason. If there is a sow_id that means its a client-time non-billable item.
-      await db.query(
-        `INSERT INTO kash_operations_timesheet_table (
+      // Insert entry and RETURN the new ID
+      const result = await db.query(
+        `
+        INSERT INTO kash_operations_timesheet_table (
           emp_id,
-          sow_id, 
-          period_start_date, 
-          billable, 
-          non_billable_reason, 
+          sow_id,
+          period_start_date,
+          billable,
+          non_billable_reason,
           non_billable_reason_uuid,
           ticket_num,
-          monday_hours, tuesday_hours, wednesday_hours, thursday_hours, friday_hours,
-          saturday_hours, sunday_hours, sub_assignment,
-          sub_assignment_segment_1, sub_assignment_segment_2, timesheet_status_entry
-        ) VALUES (
+          monday_hours,
+          tuesday_hours,
+          wednesday_hours,
+          thursday_hours,
+          friday_hours,
+          saturday_hours,
+          sunday_hours,
+          sub_assignment,
+          sub_assignment_segment_1,
+          sub_assignment_segment_2,
+          timesheet_status_entry
+        )
+        VALUES (
           $1, $2, $3, $4, $5, $6,
           $7, $8, $9, $10, $11,
           $12, $13, $14,
           $15, $16, $17, $18
-        )`,
+        )
+        RETURNING timesheet_entry_id
+        `,
         [
           emp_id,
-          sow_id,
+          sow_id ?? null,
           period_start_date,
           entry.billable,
-          entry.non_billable_reason,
-          entry.non_billable_reason_uuid,
-          entry.ticket_num,
+          entry.non_billable_reason ?? null,
+          entry.non_billable_reason_uuid ?? null,
+          entry.ticket_num ?? null,
           parseNumber(entry.monday_hours),
           parseNumber(entry.tuesday_hours),
           parseNumber(entry.wednesday_hours),
@@ -85,25 +77,32 @@ router.post("/add-batch", authenticateToken, async (req, res) => { // Change thi
           parseNumber(entry.friday_hours),
           parseNumber(entry.saturday_hours),
           parseNumber(entry.sunday_hours),
-          entry.sub_assignment,
-          entry.sub_assignment_segment_1,
-          entry.sub_assignment_segment_2,
-          entry.timesheet_status_entry,
+          entry.sub_assignment ?? null,
+          entry.sub_assignment_segment_1 ?? null,
+          entry.sub_assignment_segment_2 ?? null,
+          entry.timesheet_status_entry ?? "Submitted",
         ]
       );
+
+      if (result.rows.length > 0) {
+        insertedIds.push(result.rows[0].timesheet_entry_id);
+      }
     }
 
     console.log("✅ Batch insert completed for entries:", entries.length);
-    console.log("Entries data:", JSON.stringify(entries));
+    console.log("🆕 Inserted IDs:", insertedIds);
 
-    res
-      .status(200)
-      .json({ message: "✅ Timesheet batch saved. Duplicates skipped." });
+    // ✅ Send the inserted IDs back to the frontend
+    res.status(200).json({
+      message: "✅ Timesheet batch saved successfully.",
+      inserted: insertedIds,
+    });
   } catch (err) {
     console.error("❌ Insert error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
+
 
 
 // ✅ Get Non-Billable Reasons
@@ -268,7 +267,7 @@ router.get("/companies", authenticateToken, async (req, res) => {
 
   try {
     const roleQuery = await db.query(
-      "SELECT admin_level FROM public.kash_operations_user_table WHERE emp_id = $1",
+      "SELECT admin_level FROM kash_operations_user_table WHERE emp_id = $1",
       [empId]
     );
     const adminLevel = roleQuery.rows[0]?.admin_level || "Basic";
@@ -280,7 +279,7 @@ router.get("/companies", authenticateToken, async (req, res) => {
       result = await db.query(
         `
         SELECT c.company_id, c.company_name
-        FROM public.kash_operations_company_table c
+        FROM kash_operations_company_table c
         WHERE COALESCE(c.is_billable, false) = $1
         ORDER BY c.company_name
         `,
@@ -291,10 +290,10 @@ router.get("/companies", authenticateToken, async (req, res) => {
       result = await db.query(
         `
         SELECT DISTINCT c.company_id, c.company_name
-        FROM public.kash_operations_company_table c
-        JOIN public.kash_operations_created_projects_table p
+        FROM kash_operations_company_table c
+        JOIN kash_operations_created_projects_table p
           ON p.company_id = c.company_id
-        JOIN public.kash_operations_project_employee_table pe
+        JOIN kash_operations_project_employee_table pe
           ON pe.sow_id = p.sow_id
         WHERE pe.emp_id = $1
           AND COALESCE(c.is_billable, false) = $2
@@ -303,12 +302,6 @@ router.get("/companies", authenticateToken, async (req, res) => {
         [empId, isBillable]
       );
     }
-
-    // Helpful debug (remove later)
-    console.log(
-      `👤 emp_id=${empId}, role=${adminLevel}, billable=${isBillable}, returned_companies=${result.rows.length}`
-    );
-
     res.json(result.rows);
   } catch (err) {
     console.error("Error fetching companies by billable state:", err);
@@ -316,7 +309,7 @@ router.get("/companies", authenticateToken, async (req, res) => {
   }
 });
 
-
+// ✅ Get Projects by Company
 router.get("/projects/:companyId", authenticateToken, async (req, res) => {
   const { companyId } = req.params;
   const empId = req.user?.emp_id;
@@ -474,7 +467,7 @@ router.get(
   }
 );
 
-// ✅ Get Timesheet Report by Week with Filters (mirrors /daily-report)
+// ✅ Get Timesheet Report by Week with Filters
 router.get("/weekly-report", authenticateToken, async (req, res) => {
   const empId = req.user?.emp_id;
   const { startDate, endDate, employees, billable } = req.query;
@@ -601,16 +594,12 @@ router.get("/weekly-report", authenticateToken, async (req, res) => {
     // 9️⃣ Execute query
     const result = await db.query(query, values);
 
-    console.log("query:", query);
-    console.log("values:", values);
-
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Error fetching weekly report:", err);
     res.status(500).json({ error: "Failed to fetch weekly report" });
   }
 });
-
 
 // GET /api/timesheet/hours-report
 router.get("/hours-report", authenticateToken, async (req, res) => {
@@ -730,10 +719,10 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
         t.sub_assignment_segment_1 AS task_area,
         t.sub_assignment_segment_2 AS notes,
         t.billable
-      FROM public.kash_operations_timesheet_table t
-      JOIN public.kash_operations_user_table u ON t.emp_id = u.emp_id
-      LEFT JOIN public.kash_operations_created_projects_table p ON t.sow_id = p.sow_id
-      LEFT JOIN public.kash_operations_company_table c ON p.company_id = c.company_id
+      FROM kash_operations_timesheet_table t
+      JOIN kash_operations_user_table u ON t.emp_id = u.emp_id
+      LEFT JOIN kash_operations_created_projects_table p ON t.sow_id = p.sow_id
+      LEFT JOIN kash_operations_company_table c ON p.company_id = c.company_id
     `;
 
     const conditions = [];
@@ -742,7 +731,7 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
     // 3) Role-based restriction
     if (adminLevel === "Admin") {
       query += `
-        JOIN public.kash_operations_company_admin_role_table a
+        JOIN kash_operations_company_admin_role_table a
           ON a.company_id = c.company_id
       `;
       conditions.push(`a.emp_id = $${values.length + 1}`);
@@ -809,8 +798,6 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
     }
 
 
-
-
     if (employees) {
       const empArray = employees
         .split(",")
@@ -834,15 +821,12 @@ router.get("/daily-report", authenticateToken, async (req, res) => {
     if (conditions.length > 0) query += ` WHERE ${conditions.join(" AND ")}`;
     query += ` ORDER BY t.period_start_date DESC`;
 
-    
     // 7) Execute
     const result = await db.query(query, values);
-    console.log('query: ' + query )
-    console.log('values: ' + values )
 
     // console.log("\n✅ Daily Report rows fetched:", result.rows.length);
     // console.log("Rows fetched:", JSON.stringify(result.rows));
-
+console.log("values: " + values)
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Error fetching daily report data:", err);
@@ -1066,11 +1050,6 @@ router.get("/daily-hours-report", authenticateToken, async (req, res) => {
   const { startDate, endDate, emp_ids } = req.query;
   const { emp_id, role } = req.user;
 
-  console.log("➡️ Received Start Date:", startDate);
-  console.log("➡️ Received End Date:", endDate);
-  console.log("➡️ Received emp_ids:", emp_ids);
-  console.log("➡️ User from token:", { emp_id, role });
-
   try {
     const conditions = [];
     const values = [];
@@ -1159,6 +1138,7 @@ router.get("/daily-hours-report", authenticateToken, async (req, res) => {
     `;
 
     const result = await db.query(query, values);
+    console.log("values: " + values)
     console.log("✅ Rows fetched from DB:", result.rows.length);
     res.json(result.rows);
   } catch (err) {
