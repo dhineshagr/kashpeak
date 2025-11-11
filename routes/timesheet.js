@@ -12,7 +12,7 @@ const parseNumber = (val) => {
 };
 
 // ✅ Insert new entries only if they don’t exist
-router.post("/add-batch", authenticateToken, async (req, res) => {
+router.post("/add-batch", authenticateToken, async (req, res) => { // Change this so that for non-billable timesheet entries, we default sow_id to NULL 
   const { entries } = req.body;
 
   console.log("➡️ Received entries to add:", entries?.length || 0);
