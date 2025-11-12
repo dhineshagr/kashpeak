@@ -379,32 +379,32 @@ router.get("/project-details/:sowId", authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ Get Work and Task Areas from Project Sub Category Table
-router.get("/areas/:sowId", async (req, res) => {
-  const { sowId } = req.params;
+// // ✅ Get Work and Task Areas from Project Sub Category Table
+// router.get("/areas/:sowId", async (req, res) => {
+//   const { sowId } = req.params;
 
-  try {
-    const result = await db.query(
-      `
-      SELECT uuid, non_billable_reason
-      FROM public.kash_operations_non_billable_reasons
-      ORDER BY non_billable_reason
-      `
-    );
+//   try {
+//     const result = await db.query(
+//       `
+//       SELECT uuid, non_billable_reason
+//       FROM public.kash_operations_non_billable_reasons
+//       ORDER BY non_billable_reason
+//       `
+//     );
 
-    const workAreas = [
-      ...new Set(result.rows.map((r) => r.sub_task_title).filter(Boolean)),
-    ];
-    const taskAreas = [
-      ...new Set(result.rows.map((r) => r.segment_1).filter(Boolean)),
-    ];
+//     const workAreas = [
+//       ...new Set(result.rows.map((r) => r.sub_task_title).filter(Boolean)),
+//     ];
+//     const taskAreas = [
+//       ...new Set(result.rows.map((r) => r.segment_1).filter(Boolean)),
+//     ];
 
-    res.json({ workAreas, taskAreas });
-  } catch (err) {
-    console.error("Error fetching areas:", err);
-    res.status(500).json({ error: "Failed to fetch work/task areas" });
-  }
-});
+//     res.json({ workAreas, taskAreas });
+//   } catch (err) {
+//     console.error("Error fetching areas:", err);
+//     res.status(500).json({ error: "Failed to fetch work/task areas" });
+//   }
+// });
 
 // ✅ Get Task Areas by sowId and workArea
 router.get("/task-areas/:sowId/:workArea", async (req, res) => {
