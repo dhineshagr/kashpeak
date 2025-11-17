@@ -54,7 +54,7 @@ pipeline {
         stage('Deploy to Dev Server') {
             steps {
                 bat """
-                    plink -batch -i "C:\\KASH-TECH\\Deployment\\Production\\Kash-Operations-SSH-Key.ppk" ^
+                    plink -batch -i "C:\\KASH-TECH\\Deployment\\Kash-Operations-Server-New\\Kash-Operations-Server-New.ppk" ^
                     -hostkey "${HOST_KEY}" ^
                     azureuser@${REMOTE_HOST} ^
                     "docker rm -f ${CONTAINER_NAME} || true && docker pull ${LATEST_TAG} && docker run -d --restart unless-stopped -p ${EXPOSED_PORT}:${APP_PORT} --name ${CONTAINER_NAME} ${LATEST_TAG}"
